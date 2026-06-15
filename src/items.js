@@ -1,0 +1,47 @@
+export const item_list = [
+  { type: 'sword', name: 'Crimson Verdict',
+    base: {
+      damage: 50,
+      attackSpeed: 1.2,
+      requiredLevel: 5,
+    },
+    possibleMods: [
+      '5% increased attack speed',
+      '10% increased damage',
+    ],
+    img: '/items/sword.png' },
+  { type: 'shield',
+    base: {
+      defense: 40,
+      blockChance: 20,
+      requiredLevel: 4,
+    },
+      possibleMods: [
+        '10% increased block chance',
+        '5% damage reduction',
+      ],
+    name: 'Void Ward', img: '/items/shield.png' },
+  { type: 'bow', name: 'Whisperwind',
+    base: {
+      damage: 35,
+      attackSpeed: 1.5,
+      requiredLevel: 6,
+    },
+    possibleMods: [
+      '15% increased attack speed',
+      '20% chance to deal double damage',
+    ], 
+    img: '/items/bow.png' },
+  { type: 'book_int', name: 'Astral Fracture', 
+    description: 'Cast a powerful spell that damages all enemies in a radius.',
+    effects: ['Damage: 150% of your magic power', 'Cooldown: 20s'],
+    img: '/items/book_int.png' },
+  { type: 'book_dex', name: 'Phantom Weave',
+    description: 'Grants the ability to teleport a short distance, evading attacks.',
+    effects: ['Teleport Range: 5 tiles', 'Cooldown: 15s'],
+    img: '/items/book_dex.png' },
+  { type: 'book_str', name: 'Thunderwake', 
+    description: 'A manual of primal forces. Boosts attack power by 20% but decreases movement speed by 10%.',
+    effects: ['Attack Power: +20%', 'Movement Speed: -10%'],
+    img: '/items/book_str.png' },
+]

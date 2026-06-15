@@ -1,0 +1,681 @@
+import { useEffect, useRef } from 'react'
+import Phaser from 'phaser'
+import {
+  FLOOR_FRAMES,
+  WALL_H_FRAMES,
+  WALL_H_FEATURES,
+  WALL_B_FRAMES,
+  TEXTURE_FRAMES,
+} from './tileset.js'
+
+// Mapa grande para llenar pantallas completas; la cámara sigue al player.
+const COLS = 44
+const ROWS = 30
+const CELL = 48
+const WORLD_W = COLS * CELL
+const WORLD_H = ROWS * CELL
+const NUM_ROOMS = 14
+
+const FEATURE_CHANCE = 0.12
+const SPEED = 170
+
+// Personajes disponibles (frames de 100x100). Cada uno define cuántos frames
+// tiene cada animación y su velocidad (los de pocos frames van más lentos).
+// `body` = caja de colisión dentro del frame; `scale` = escala en pantalla.
+const CHARACTERS = {
+  witch: {
+    idle: 'witch-idle',
+    walk: 'witch-walk',
+    idleFrames: 3,
+    walkFrames: 3,
+    idleRate: 4,
+    walkRate: 8,
+    frameW: 64,
+    frameH: 64,
+    body: { w: 15, h: 23, ox: 24, oy: 21 },
+    scale: 1.4,
+  },
+  human: {
+    idle: 'human-idle',
+    walk: 'human-walk',
+    idleFrames: 3,
+    walkFrames: 3,
+    // frameRate = frames por segundo (independiente de la cantidad de frames).
+    // Más alto = animación más rápida.
+    idleRate: 4,
+    walkRate: 8,
+    frameW: 64,
+    frameH: 64,
+    body: { w: 15, h: 23, ox: 24, oy: 21 },
+    scale: 1.4,
+  },
+  warrior: {
+    idle: 'warrior-idle',
+    walk: 'warrior-walk',
+    idleFrames: 3,
+    walkFrames: 3,
+    idleRate: 4, // pocas frames -> animación más lenta
+    walkRate: 8,
+    frameW: 64,
+    frameH: 64,
+    body: { w: 15, h: 23, ox: 24, oy: 21 },
+    scale: 1.4,
+  },
+}
+
+const ZOOM = 2.2 // acercamiento de la cámara
+const REVEAL_CELLS = 4 // radio (en celdas) que descubre el jugador
+const REVEAL_PX = REVEAL_CELLS * CELL
+const FOG_COLOR = 0x05070d
+const MINIMAP_W = 220 // ancho del minimapa en px
+
+// Tamaño final del ataque (la textura es ~96px; 0.5 = la mitad).
+const ATTACK_SCALE = 0.5
+
+// --- Aura de fuego (toggle con E) ---
+const AURA_RADIUS = 50 // radio del aura en px (diámetro = AURA_RADIUS * 2)
+const AURA_PARTICLE_SIZE = .4 // escala de las partículas de fuego
+const AURA_DENSITY = 100 // cantidad de partículas distribuidas en el borde
+
+export default function Game({ weaponRef, characterRef }) {
+  const containerRef = useRef(null)
+  const gameRef = useRef(null)
+
+  useEffect(() => {
+    if (!containerRef.current) return
+
+    class DungeonScene extends Phaser.Scene {
+      constructor() {
+        super('dungeon')
+      }
+
+      preload() {
+        const url = (p) => new URL(p, import.meta.url).href
+        this.load.image('floors', url('../tiles.png'))
+        this.load.image('wallH', url('../assets/walls/top-horizontal.png'))
+        this.load.image('wallV', url('../assets/walls/top_vertical.png'))
+        this.load.image('wallB', url('../assets/walls/bottom_vertical.png'))
+        // Carga los spritesheets de cada personaje (idle/walk) según su tamaño
+        // de frame, sin duplicar texturas (p. ej. human reusa idle como walk).
+        const seen = new Set()
+        for (const c of Object.values(CHARACTERS)) {
+          const fw = c.frameW || 100
+          const fh = c.frameH || 100
+          for (const key of [c.idle, c.walk]) {
+            if (seen.has(key)) continue
+            seen.add(key)
+            this.load.spritesheet(key, url(`../assets/soldier/${key}.png`), {
+              frameWidth: fw,
+              frameHeight: fh,
+            })
+          }
+        }
+      }
+
+      create() {
+        // Registrar sub-frames de las texturas con varios tiles.
+        for (const [texKey, frames] of Object.entries(TEXTURE_FRAMES)) {
+          const tex = this.textures.get(texKey)
+          for (const f of frames) {
+            if (!tex.has(f.name)) tex.add(f.name, 0, f.x, f.y, f.w, f.h)
+          }
+        }
+
+        // Pixel-art: filtrado NEAREST + animaciones idle/walk de cada personaje.
+        // (algunos comparten textura idle/walk, así que evitamos recrear anims).
+        for (const c of Object.values(CHARACTERS)) {
+          this.textures.get(c.idle).setFilter(Phaser.Textures.FilterMode.NEAREST)
+          this.textures.get(c.walk).setFilter(Phaser.Textures.FilterMode.NEAREST)
+          if (!this.anims.exists(c.idle)) {
+            this.anims.create({
+              key: c.idle,
+              frames: this.anims.generateFrameNumbers(c.idle, { start: 0, end: c.idleFrames - 1 }),
+              frameRate: c.idleRate,
+              repeat: -1,
+            })
+          }
+          if (!this.anims.exists(c.walk)) {
+            this.anims.create({
+              key: c.walk,
+              frames: this.anims.generateFrameNumbers(c.walk, { start: 0, end: c.walkFrames - 1 }),
+              frameRate: c.walkRate,
+              repeat: -1,
+            })
+          }
+        }
+
+        // Capas: suelos (contenedor, fondo) y paredes (grupo estático = colisión).
+        this.floorLayer = this.add.container(0, 0).setDepth(0)
+        this.walls = this.physics.add.staticGroup()
+
+        // Player (personaje inicial según selección).
+        const initialChar = (characterRef && characterRef.current) || 'soldier'
+        this.player = this.physics.add.sprite(0, 0, CHARACTERS[initialChar].idle, 0)
+        this.player.setDepth(10)
+        this.player.setCollideWorldBounds(true)
+        this.applyCharacter(initialChar)
+
+        this.physics.add.collider(this.player, this.walls)
+
+        // --- Aura: aro de fuego animado (toggle con E) ---
+        // Relleno tenue del aura (cuerpo del círculo).
+        this.auraFill = this.add
+          .circle(0, 0, AURA_RADIUS, 0xff6600, 0.08)
+          .setDepth(8)
+          .setVisible(false)
+
+        // El aro de fuego se dibuja por frame con Graphics (mezcla aditiva).
+        // Las llamas titilan en su lugar; no rotan.
+        this.fireRing = this.add.graphics().setDepth(9)
+        this.fireRing.setBlendMode(Phaser.BlendModes.ADD)
+        this.fireRing.setVisible(false)
+
+        // Textura de partícula (punto suave) para los estallidos de fuego.
+        if (!this.textures.exists('spark')) {
+          const g = this.make.graphics({ add: false })
+          for (let i = 8; i > 0; i--) {
+            g.fillStyle(0xffffff, (i / 8) * 0.2)
+            g.fillCircle(8, 8, i)
+          }
+          g.generateTexture('spark', 16, 16)
+          g.destroy()
+        }
+
+        // Emisor de ráfaga: dispara un estallido de fuego sobre el aro al
+        // prender/apagar el aura (one-shot con explode, no emite continuo).
+        this.fireBurst = this.add.particles(0, 0, 'spark', {
+          lifespan: { min: 350, max: 750 },
+          speed: { min: 20, max: 90 },
+          accelerationY: -60, // el fuego sube al desvanecerse
+          scale: { start: AURA_PARTICLE_SIZE * 1.6, end: 0 },
+          alpha: { start: 1, end: 0 },
+          tint: [0xfff066, 0xff9933, 0xff3300, 0xaa0000],
+          blendMode: 'ADD',
+          emitting: false,
+          emitZone: {
+            type: 'edge',
+            source: new Phaser.Geom.Circle(0, 0, AURA_RADIUS),
+            quantity: AURA_DENSITY,
+          },
+        })
+        this.fireBurst.setDepth(11)
+
+        this.auraOn = false
+        this.input.keyboard.on('keydown-E', () => {
+          this.auraOn = !this.auraOn
+          this.auraFill.setVisible(this.auraOn)
+          this.fireRing.setVisible(this.auraOn)
+          if (!this.auraOn) this.fireRing.clear()
+          // Estallido de fuego tanto al prender como al apagar.
+          this.fireBurst.explode(AURA_DENSITY, this.player.x, this.player.y)
+        })
+
+        // Cámara y límites del mundo.
+        this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H)
+        this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H)
+        this.cameras.main.setZoom(ZOOM)
+        this.cameras.main.startFollow(this.player, true, 0.12, 0.12)
+
+        // --- Niebla de guerra (fog) ---
+        // Pincel radial suave para "borrar" la niebla alrededor del jugador.
+        if (!this.textures.exists('fogBrush')) {
+          const r = REVEAL_PX
+          const steps = 26
+          const g = this.make.graphics({ add: false })
+          for (let i = steps; i >= 1; i--) {
+            g.fillStyle(0xffffff, 1 - (i - 1) / steps)
+            g.fillCircle(r, r, (r * i) / steps)
+          }
+          g.generateTexture('fogBrush', r * 2, r * 2)
+          g.destroy()
+        }
+        // Capa de niebla cubriendo todo el mundo (se descubre al moverse).
+        this.fog = this.add
+          .renderTexture(0, 0, WORLD_W, WORLD_H)
+          .setOrigin(0)
+          .setDepth(5)
+        this.discovered = null // se inicializa en generate()
+
+        // --- Ataque (media luna) con click izquierdo ---
+        // Textura del slash: una media luna afinada en PUNTA en ambos extremos.
+        // Borde exterior de radio constante; el grosor va de 0 (puntas) a máximo
+        // (centro), así los extremos terminan en punta.
+        if (!this.textures.exists('slash')) {
+          const s = 96
+          const c = s / 2
+          const R = 44 // radio exterior
+          const T = 10 // grosor máximo (en el centro)
+          const a0 = Phaser.Math.DegToRad(-54)
+          const a1 = Phaser.Math.DegToRad(54)
+          const steps = 28
+          const g = this.make.graphics({ add: false })
+          g.fillStyle(0xffffff, 1)
+          g.beginPath()
+          for (let i = 0; i <= steps; i++) {
+            const t = i / steps
+            const ang = a0 + (a1 - a0) * t
+            const x = c + Math.cos(ang) * R
+            const y = c + Math.sin(ang) * R
+            i === 0 ? g.moveTo(x, y) : g.lineTo(x, y)
+          }
+          for (let i = steps; i >= 0; i--) {
+            const t = i / steps
+            const ang = a0 + (a1 - a0) * t
+            const r = R - T * Math.sin(Math.PI * t) // grosor 0 en las puntas
+            g.lineTo(c + Math.cos(ang) * r, c + Math.sin(ang) * r)
+          }
+          g.closePath()
+          g.fillPath()
+          g.generateTexture('slash', s, s)
+          g.destroy()
+        }
+        this.textures.get('slash').setFilter(Phaser.Textures.FilterMode.NEAREST)
+        this.nextAttack = 0
+        this.activeSlashes = []
+
+        // Proyectiles: la flecha es solo una línea fina de 1px.
+        if (!this.textures.exists('arrow')) {
+          const g = this.make.graphics({ add: false })
+          g.fillStyle(0xffffff, 1)
+          g.fillRect(0, 0, 18, 1)
+          g.generateTexture('arrow', 18, 1)
+          g.destroy()
+        }
+        this.textures.get('arrow').setFilter(Phaser.Textures.FilterMode.NEAREST)
+        this.projectiles = this.physics.add.group()
+        this.physics.add.collider(this.projectiles, this.walls, (arrow) => arrow.destroy())
+
+        this.input.on('pointerdown', (pointer) => {
+          if (pointer.leftButtonDown()) this.attack()
+        })
+
+        // Controles.
+        this.keys = this.input.keyboard.addKeys('W,A,S,D')
+        this.input.keyboard.on('keydown-R', () => this.generate())
+
+        this.generate()
+      }
+
+      // --- Grilla: salas + pasillos en L ---
+      buildGrid() {
+        const grid = Array.from({ length: ROWS }, () => new Array(COLS).fill(0))
+        const inB = (x, y) => x > 0 && y > 0 && x < COLS - 1 && y < ROWS - 1
+        const carveRoom = (rx, ry, rw, rh) => {
+          for (let y = ry; y < ry + rh; y++)
+            for (let x = rx; x < rx + rw; x++) if (inB(x, y)) grid[y][x] = 1
+        }
+        const carveH = (x1, x2, y) => {
+          for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) grid[y][x] = 1
+        }
+        const carveV = (y1, y2, x) => {
+          for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) grid[y][x] = 1
+        }
+
+        const rooms = []
+        for (let i = 0; i < NUM_ROOMS; i++) {
+          const rw = Phaser.Math.Between(4, 8)
+          const rh = Phaser.Math.Between(4, 7)
+          const rx = Phaser.Math.Between(2, COLS - rw - 2)
+          const ry = Phaser.Math.Between(2, ROWS - rh - 2)
+          carveRoom(rx, ry, rw, rh)
+          rooms.push({ cx: rx + (rw >> 1), cy: ry + (rh >> 1) })
+        }
+        for (let i = 1; i < rooms.length; i++) {
+          const a = rooms[i - 1]
+          const b = rooms[i]
+          if (Math.random() < 0.5) {
+            carveH(a.cx, b.cx, a.cy)
+            carveV(a.cy, b.cy, b.cx)
+          } else {
+            carveV(a.cy, b.cy, a.cx)
+            carveH(a.cx, b.cx, b.cy)
+          }
+        }
+        return { grid, rooms }
+      }
+
+      generate() {
+        this.floorLayer.removeAll(true)
+        this.walls.clear(true, true)
+        this.projectiles?.clear(true, true)
+
+        const { grid, rooms } = this.buildGrid()
+        const isF = (x, y) =>
+          x >= 0 && y >= 0 && x < COLS && y < ROWS && grid[y][x] === 1
+
+        // Roles de pared por orientación.
+        const role = Array.from({ length: ROWS }, () => new Array(COLS).fill(null))
+        for (let y = 0; y < ROWS; y++) {
+          for (let x = 0; x < COLS; x++) {
+            if (isF(x, y)) continue
+            let adj = false
+            for (let dy = -1; dy <= 1 && !adj; dy++)
+              for (let dx = -1; dx <= 1 && !adj; dx++)
+                if (isF(x + dx, y + dy)) adj = true
+            if (!adj) continue
+            const fN = isF(x, y - 1)
+            const fS = isF(x, y + 1)
+            const fW = isF(x - 1, y)
+            const fE = isF(x + 1, y)
+            if (fN || fS) role[y][x] = 'H'
+            else if (fW || fE) role[y][x] = 'V'
+            else role[y][x] = 'H'
+          }
+        }
+        for (let y = 0; y < ROWS; y++)
+          for (let x = 0; x < COLS; x++)
+            if (role[y][x] === 'V' && (y + 1 >= ROWS || role[y + 1][x] !== 'V'))
+              role[y][x] = 'Vb'
+
+        // Guardar grids para el minimapa y resetear niebla/descubierto.
+        this.grid = grid
+        this.role = role
+        this.discovered = Array.from({ length: ROWS }, () => new Array(COLS).fill(false))
+        this.fog.clear()
+        this.fog.fill(FOG_COLOR, 1)
+
+        const rnd = (arr) => Phaser.Utils.Array.GetRandom(arr)
+
+        for (let y = 0; y < ROWS; y++) {
+          for (let x = 0; x < COLS; x++) {
+            const px = x * CELL
+            const py = y * CELL
+            if (isF(x, y)) {
+              const img = this.add
+                .image(px, py, 'floors', rnd(FLOOR_FRAMES).name)
+                .setOrigin(0)
+                .setDisplaySize(CELL, CELL)
+              this.floorLayer.add(img)
+              continue
+            }
+            const r = role[y][x]
+            if (!r) continue
+
+            let texKey, frame
+            if (r === 'H') {
+              const pool =
+                Math.random() < FEATURE_CHANCE ? WALL_H_FEATURES : WALL_H_FRAMES
+              texKey = 'wallH'
+              frame = rnd(pool).name
+            } else if (r === 'V') {
+              texKey = 'wallV' // imagen completa = tile único
+              frame = undefined
+            } else {
+              texKey = 'wallB'
+              frame = rnd(WALL_B_FRAMES).name
+            }
+
+            // El tile de pared es además el cuerpo de colisión estático.
+            const wall = this.walls.create(px + CELL / 2, py + CELL / 2, texKey, frame)
+            wall.setDisplaySize(CELL, CELL).setDepth(1)
+            wall.refreshBody()
+          }
+        }
+
+        // Spawn del player en el centro de la primera sala (siempre suelo).
+        const spawn = rooms[0]
+        this.player.setVelocity(0, 0)
+        this.player.setPosition(spawn.cx * CELL + CELL / 2, spawn.cy * CELL + CELL / 2)
+        this.cameras.main.centerOn(this.player.x, this.player.y)
+      }
+
+      // Cambia el personaje (sprites, escala y cuerpo de colisión).
+      applyCharacter(key) {
+        const c = CHARACTERS[key] || CHARACTERS.soldier
+        this.activeChar = key
+        this.player.setScale(c.scale)
+        this.player.setTexture(c.idle, 0)
+        this.player.body.setSize(c.body.w, c.body.h)
+        this.player.body.setOffset(c.body.ox, c.body.oy)
+        this.player.play(c.idle)
+      }
+
+      // Dispara una flecha hacia el ángulo dado (arco equipado).
+      shootArrow(angle) {
+        const arrow = this.projectiles.create(this.player.x, this.player.y, 'arrow')
+        arrow.setDepth(11).setRotation(angle)
+        arrow.body.setSize(14, 2, true)
+        this.physics.velocityFromRotation(angle, 480, arrow.body.velocity)
+        // Se autodestruye a los 2s si no chocó nada.
+        this.time.delayedCall(2000, () => arrow.active && arrow.destroy())
+      }
+
+      // Ataque: media luna que barre hacia el cursor y se desvanece.
+      attack() {
+        const now = this.time.now
+        if (now < this.nextAttack) return
+        this.nextAttack = now + 280 // cooldown
+
+        const p = this.input.activePointer
+        const cursor = this.cameras.main.getWorldPoint(p.x, p.y)
+        const angle = Phaser.Math.Angle.Between(
+          this.player.x,
+          this.player.y,
+          cursor.x,
+          cursor.y
+        )
+
+        // Con un arco equipado en la main hand, dispara una flecha.
+        if (weaponRef?.current === 'bow') {
+          this.shootArrow(angle)
+          return
+        }
+
+        // Empieza diminuto (~1px) y crece hasta el tamaño final mientras barre.
+        const slash = this.add
+          .image(this.player.x, this.player.y, 'slash')
+          .setDepth(11)
+          .setRotation(angle - 0.5)
+          .setAlpha(0.95)
+          .setScale(0.02)
+        this.activeSlashes.push(slash)
+
+        const remove = () => {
+          const i = this.activeSlashes.indexOf(slash)
+          if (i >= 0) this.activeSlashes.splice(i, 1)
+          slash.destroy()
+        }
+
+        this.tweens.add({
+          targets: slash,
+          scaleX: ATTACK_SCALE,
+          scaleY: ATTACK_SCALE,
+          rotation: angle + 0.5, // barrido
+          duration: 130,
+          ease: 'Quad.easeOut',
+          onComplete: () => {
+            // Al llegar al tamaño final, se desvanece.
+            this.tweens.add({
+              targets: slash,
+              alpha: 0,
+              scaleX: ATTACK_SCALE * 1.12,
+              scaleY: ATTACK_SCALE * 1.12,
+              duration: 90,
+              ease: 'Quad.easeIn',
+              onComplete: remove,
+            })
+          },
+        })
+      }
+
+      // Dibuja un aro de fuego: lengüetas radiales que titilan con el tiempo.
+      drawFireRing(cx, cy, t) {
+        const g = this.fireRing
+        g.clear()
+        const N = AURA_DENSITY
+        const fs = AURA_PARTICLE_SIZE
+
+        // Aro base encendido.
+        g.lineStyle(Math.max(2, 4 * fs), 0xff7a1a, 0.4)
+        g.strokeCircle(cx, cy, AURA_RADIUS)
+
+        for (let i = 0; i < N; i++) {
+          const a = (i / N) * Math.PI * 2
+          // Parpadeo orgánico: suma de senos por ángulo, animada con el tiempo.
+          const flicker =
+            0.5 +
+            0.35 * Math.sin(a * 6 + t * 0.012) +
+            0.25 * Math.sin(a * 11 - t * 0.018)
+          const len = (7 + Math.max(0, flicker) * 15) * fs
+          const dx = Math.cos(a)
+          const dy = Math.sin(a)
+          // Lengüeta de llama: base amarilla -> punta roja, hacia afuera.
+          g.fillStyle(0xffe066, 0.7)
+          g.fillCircle(cx + dx * AURA_RADIUS, cy + dy * AURA_RADIUS, 6 * fs)
+          g.fillStyle(0xff8a1a, 0.6)
+          g.fillCircle(
+            cx + dx * (AURA_RADIUS + len * 0.5),
+            cy + dy * (AURA_RADIUS + len * 0.5),
+            4.5 * fs
+          )
+          g.fillStyle(0xff3300, 0.5)
+          g.fillCircle(cx + dx * (AURA_RADIUS + len), cy + dy * (AURA_RADIUS + len), 3 * fs)
+        }
+      }
+
+      update(time) {
+        // Cambio de personaje en caliente (desde la selección en React).
+        if (characterRef && characterRef.current && characterRef.current !== this.activeChar) {
+          this.applyCharacter(characterRef.current)
+        }
+        const char = CHARACTERS[this.activeChar]
+
+        const { W, A, S, D } = this.keys
+        let vx = 0
+        let vy = 0
+        if (A.isDown) vx -= 1
+        if (D.isDown) vx += 1
+        if (W.isDown) vy -= 1
+        if (S.isDown) vy += 1
+
+        if (vx !== 0 || vy !== 0) {
+          const len = Math.hypot(vx, vy)
+          this.player.setVelocity((vx / len) * SPEED, (vy / len) * SPEED)
+          if (this.player.anims.currentAnim?.key !== char.walk) this.player.play(char.walk, true)
+        } else {
+          this.player.setVelocity(0, 0)
+          if (this.player.anims.currentAnim?.key !== char.idle) this.player.play(char.idle, true)
+        }
+
+        // El personaje siempre mira hacia el cursor (izquierda/derecha),
+        // independientemente de la dirección en que se mueva.
+        const pointer = this.input.activePointer
+        const cursor = this.cameras.main.getWorldPoint(pointer.x, pointer.y)
+        this.player.setFlipX(cursor.x < this.player.x)
+
+        // Los ataques activos siguen al personaje mientras se animan.
+        for (const sl of this.activeSlashes) sl.setPosition(this.player.x, this.player.y)
+
+        // El aura (relleno + aro de fuego) sigue al player.
+        if (this.auraOn) {
+          this.auraFill.setPosition(this.player.x, this.player.y)
+          this.drawFireRing(this.player.x, this.player.y, time)
+        }
+
+        this.reveal()
+      }
+
+      // Descubre el mapa alrededor del jugador (niebla + grilla descubierta).
+      reveal() {
+        if (!this.discovered) return
+        const px = this.player.x
+        const py = this.player.y
+        // Borra la niebla con el pincel radial centrado en el jugador.
+        this.fog.erase('fogBrush', px - REVEAL_PX, py - REVEAL_PX)
+        // Marca como descubiertas las celdas dentro del radio.
+        const ccx = Math.floor(px / CELL)
+        const ccy = Math.floor(py / CELL)
+        for (let dy = -REVEAL_CELLS; dy <= REVEAL_CELLS; dy++) {
+          for (let dx = -REVEAL_CELLS; dx <= REVEAL_CELLS; dx++) {
+            const x = ccx + dx
+            const y = ccy + dy
+            if (x < 0 || y < 0 || x >= COLS || y >= ROWS) continue
+            if (dx * dx + dy * dy <= REVEAL_CELLS * REVEAL_CELLS) this.discovered[y][x] = true
+          }
+        }
+      }
+    }
+
+    // Escena de UI (minimapa) separada, sin el zoom de la cámara del juego.
+    class UIScene extends Phaser.Scene {
+      constructor() {
+        super('ui')
+      }
+      create() {
+        this.dungeon = this.scene.get('dungeon')
+        this.g = this.add.graphics()
+      }
+      layout() {
+        const pad = 14
+        const scale = MINIMAP_W / WORLD_W
+        const w = WORLD_W * scale
+        const h = WORLD_H * scale
+        return { scale, w, h, x: this.scale.width - w - pad, y: pad }
+      }
+      update() {
+        const d = this.dungeon
+        const g = this.g
+        g.clear()
+        if (!d || !d.discovered) return
+        const { scale, x, y, w, h } = this.layout()
+        const cs = Math.ceil(CELL * scale)
+
+        g.fillStyle(0x0a0e1a, 0.75)
+        g.fillRect(x, y, w, h)
+
+        for (let cy = 0; cy < ROWS; cy++) {
+          for (let cx = 0; cx < COLS; cx++) {
+            if (!d.discovered[cy][cx]) continue
+            if (d.role[cy][cx]) g.fillStyle(0x9aa3b2, 1) // pared
+            else if (d.grid[cy][cx] === 1) g.fillStyle(0x39414f, 1) // suelo
+            else continue
+            g.fillRect(x + cx * CELL * scale, y + cy * CELL * scale, cs, cs)
+          }
+        }
+
+        // Marcador del jugador.
+        g.fillStyle(0xffd23f, 1)
+        g.fillCircle(x + d.player.x * scale, y + d.player.y * scale, 3)
+        // Borde.
+        g.lineStyle(2, 0x9aa3b2, 0.6)
+        g.strokeRect(x, y, w, h)
+      }
+    }
+
+    const game = new Phaser.Game({
+      type: Phaser.AUTO,
+      parent: containerRef.current,
+      width: containerRef.current.clientWidth || window.innerWidth,
+      height: containerRef.current.clientHeight || window.innerHeight,
+      backgroundColor: '#0c0f12',
+      scene: [DungeonScene, UIScene],
+      physics: {
+        default: 'arcade',
+        arcade: { debug: false },
+      },
+      scale: {
+        // RESIZE: el canvas ocupa todo el contenedor (sin barras ni escalado).
+        mode: Phaser.Scale.RESIZE,
+        autoCenter: Phaser.Scale.CENTER_BOTH,
+      },
+    })
+
+    gameRef.current = game
+
+    // El layout cambia al abrir/cerrar paneles: ajustamos el canvas al contenedor.
+    const ro = new ResizeObserver((entries) => {
+      const { width, height } = entries[0].contentRect
+      if (width && height) game.scale.resize(width, height)
+    })
+    ro.observe(containerRef.current)
+
+    return () => {
+      ro.disconnect()
+      if (gameRef.current) {
+        gameRef.current.destroy(true)
+      }
+    }
+  }, [])
+
+  return <div ref={containerRef} className="phaser-container" />
+}
