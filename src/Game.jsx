@@ -97,8 +97,8 @@ const AURA_RADIUS = 50 // radio del aura en px (diámetro = AURA_RADIUS * 2)
 const AURA_PARTICLE_SIZE = .4 // escala de las partículas de fuego
 const AURA_DENSITY = 100 // cantidad de partículas distribuidas en el borde
 
-const MOB_HP_BAR_W = 36
-const MOB_HP_BAR_H = 5
+const MOB_HP_BAR_W = 24
+const MOB_HP_BAR_H = 1
 const MOB_HP_BAR_OFFSET_Y = -36
 
 export default function Game({ weaponRef, characterRef, equipRef, onOpenStore }) {
