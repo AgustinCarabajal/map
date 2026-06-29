@@ -281,6 +281,84 @@ body {
   text-align: center;
 }
 
+/* ---------- Mesa de crafteo (panel flotante, sin oscurecer el fondo) ---------- */
+.crafting-modal {
+  position: fixed;
+  z-index: 45;
+  top: 50%;
+  left: 38%;
+  transform: translate(-50%, -50%);
+  background: rgba(17, 24, 42, 0.98);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 16px;
+  padding: 22px 26px;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.6);
+  min-width: 360px;
+}
+
+.crafting-modal h3 {
+  margin: 18px 0 10px;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.crafting-area {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+}
+
+.craft-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 52px);
+  gap: 6px;
+}
+
+.craft-arrow {
+  font-size: 1.6rem;
+  color: #94a3b8;
+}
+
+.slot.craft-out {
+  width: 64px;
+  height: 64px;
+  border-color: #fbbf24;
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.craft-mats {
+  display: grid;
+  grid-template-columns: repeat(8, 44px);
+  gap: 4px;
+}
+
+.craft-btn {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  padding: 10px;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #0b1020;
+  background: #fbbf24;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+.craft-btn:hover:not(:disabled) {
+  background: #fcd34d;
+}
+.craft-btn:disabled {
+  background: rgba(148, 163, 184, 0.25);
+  color: #64748b;
+  cursor: not-allowed;
+}
+
 /* ---------- Tooltip de item ---------- */
 .item-tooltip {
   position: fixed;

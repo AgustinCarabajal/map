@@ -7,6 +7,12 @@ import {
   WALL_B_FRAMES,
   TEXTURE_FRAMES,
 } from './tileset.js'
+import { item_list } from './items.js'
+import { playerStats } from './stats.js'
+import { FEATURE_FLAGS } from './flags.js'
+
+// Mapa id de item -> type (sword/shield/bow/...), para reglas según el arma.
+const ITEM_TYPE = Object.fromEntries(item_list.map((it) => [it.id, it.type]))
 
 // Mapa grande para llenar pantallas completas; la cámara sigue al player.
 const COLS = 44
@@ -17,7 +23,7 @@ const WORLD_H = ROWS * CELL
 const NUM_ROOMS = 14
 
 const FEATURE_CHANCE = 0.12
-const SPEED = 170
+const SPEED = 150
 
 // Personajes disponibles (frames de 100x100). Cada uno define cuántos frames
 // tiene cada animación y su velocidad (los de pocos frames van más lentos).
@@ -63,6 +69,15 @@ const CHARACTERS = {
   },
 }
 
+// Animaciones de equipo: items que se ven sobre el personaje al equiparse.
+// La key debe coincidir con el `type` del item. Sprite en assets/equip/<id>.png.
+// Si un item NO está acá, simplemente no muestra overlay (no rompe nada).
+const EQUIP_ANIMS = {
+  sword_01: { frames: 3, frameW: 64, frameH: 64, rate: 4 },
+  // Frame de 100x100 sobre personaje de 64x64 -> scale ~0.9 para alinear.
+  shield_10: { frames: 3, frameW: 64, frameH: 64, rate: 4 },
+}
+
 const ZOOM = 2.2 // acercamiento de la cámara
 const REVEAL_CELLS = 4 // radio (en celdas) que descubre el jugador
 const REVEAL_PX = REVEAL_CELLS * CELL
@@ -71,13 +86,17 @@ const MINIMAP_W = 220 // ancho del minimapa en px
 
 // Tamaño final del ataque (la textura es ~96px; 0.5 = la mitad).
 const ATTACK_SCALE = 0.5
+// Con una espada equipada el tajo aparece un poco más alejado del personaje (px).
+const SWORD_ATTACK_OFFSET = 16
+// Ángulo (grados) entre proyectiles cuando hay más de uno (projectileCount).
+const PROJECTILE_SPREAD_DEG = 10
 
 // --- Aura de fuego (toggle con E) ---
 const AURA_RADIUS = 50 // radio del aura en px (diámetro = AURA_RADIUS * 2)
 const AURA_PARTICLE_SIZE = .4 // escala de las partículas de fuego
 const AURA_DENSITY = 100 // cantidad de partículas distribuidas en el borde
 
-export default function Game({ weaponRef, characterRef }) {
+export default function Game({ weaponRef, characterRef, equipRef, onOpenStore }) {
   const containerRef = useRef(null)
   const gameRef = useRef(null)
 
@@ -110,6 +129,18 @@ export default function Game({ weaponRef, characterRef }) {
             })
           }
         }
+        // Spritesheets de equipo (overlays sobre el personaje).
+        for (const [id, cfg] of Object.entries(EQUIP_ANIMS)) {
+          this.load.spritesheet(`equip-${id}`, url(`../assets/equip/${id}.png`), {
+            frameWidth: cfg.frameW,
+            frameHeight: cfg.frameH,
+          })
+        }
+        // NPC mercader (mesa de crafteo).
+        this.load.spritesheet('store-idle', url('../assets/npc/store-idle.png'), {
+          frameWidth: 64,
+          frameHeight: 64,
+        })
       }
 
       create() {
@@ -144,6 +175,25 @@ export default function Game({ weaponRef, characterRef }) {
           }
         }
 
+        // Animaciones de equipo (overlays). NEAREST + loop.
+        // Si la textura no cargó (p. ej. falta el PNG), se ignora sin romper.
+        for (const [id, cfg] of Object.entries(EQUIP_ANIMS)) {
+          const key = `equip-${id}`
+          if (!this.textures.exists(key)) {
+            console.warn(`[equip] falta la textura ${key} (¿existe assets/equip/${id}.png?)`)
+            continue
+          }
+          this.textures.get(key).setFilter(Phaser.Textures.FilterMode.NEAREST)
+          if (!this.anims.exists(key)) {
+            this.anims.create({
+              key,
+              frames: this.anims.generateFrameNumbers(key, { start: 0, end: cfg.frames - 1 }),
+              frameRate: cfg.rate,
+              repeat: -1,
+            })
+          }
+        }
+
         // Capas: suelos (contenedor, fondo) y paredes (grupo estático = colisión).
         this.floorLayer = this.add.container(0, 0).setDepth(0)
         this.walls = this.physics.add.staticGroup()
@@ -156,6 +206,33 @@ export default function Game({ weaponRef, characterRef }) {
         this.applyCharacter(initialChar)
 
         this.physics.add.collider(this.player, this.walls)
+
+        // Overlays de items equipados (uno por slot que tenga animación).
+        // Se crean bajo demanda en updateEquip(); siempre por encima del player.
+        this.equipOverlays = {} // slot -> sprite
+        this.equipState = {} // slot -> itemType actual
+
+        // NPC mercader: aparece en un borde del mapa; click abre la mesa de crafteo.
+        this.textures.get('store-idle').setFilter(Phaser.Textures.FilterMode.NEAREST)
+        if (!this.anims.exists('store-idle')) {
+          this.anims.create({
+            key: 'store-idle',
+            frames: this.anims.generateFrameNumbers('store-idle', { start: 0, end: 2 }),
+            frameRate: 4,
+            repeat: -1,
+          })
+        }
+        this.npc = this.add
+          .sprite(0, 0, 'store-idle', 0)
+          .setDepth(9)
+          .setScale(1.4)
+          // Área de click chica: solo el personaje (bbox ~15x23 dentro del frame).
+          .setInteractive({
+            useHandCursor: true,
+            hitArea: new Phaser.Geom.Rectangle(22, 19, 20, 28),
+            hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+          })
+        this.npc.play('store-idle')
 
         // --- Aura: aro de fuego animado (toggle con E) ---
         // Relleno tenue del aura (cuerpo del círculo).
@@ -286,7 +363,19 @@ export default function Game({ weaponRef, characterRef }) {
         this.physics.add.collider(this.projectiles, this.walls, (arrow) => arrow.destroy())
 
         this.input.on('pointerdown', (pointer) => {
-          if (pointer.leftButtonDown()) this.attack()
+          if (!pointer.leftButtonDown()) return
+          // Si el click cae sobre el NPC (área chica = solo el personaje),
+          // abre la mesa de crafteo y no ataca.
+          const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y)
+          if (
+            this.npc &&
+            Math.abs(wp.x - this.npc.x) <= 14 &&
+            Math.abs(wp.y - this.npc.y) <= 19
+          ) {
+            onOpenStore?.()
+            return
+          }
+          this.attack()
         })
 
         // Controles.
@@ -417,6 +506,33 @@ export default function Game({ weaponRef, characterRef }) {
         this.player.setVelocity(0, 0)
         this.player.setPosition(spawn.cx * CELL + CELL / 2, spawn.cy * CELL + CELL / 2)
         this.cameras.main.centerOn(this.player.x, this.player.y)
+
+        // Posición del NPC: al lado del player (flag) o en un borde del mapa.
+        let best = null
+        if (FEATURE_FLAGS.npcNextToPlayer) {
+          // Primer suelo adyacente al spawn del player.
+          const around = [[1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [0, 2]]
+          for (const [dx, dy] of around) {
+            const x = spawn.cx + dx
+            const y = spawn.cy + dy
+            if (isF(x, y)) { best = { x, y }; break }
+          }
+          if (!best) best = { x: spawn.cx, y: spawn.cy }
+        } else {
+          // Celda de suelo más cercana a un borde del mapa.
+          let bestD = Infinity
+          for (let y = 0; y < ROWS; y++) {
+            for (let x = 0; x < COLS; x++) {
+              if (!isF(x, y)) continue
+              const d = Math.min(x, COLS - 1 - x, y, ROWS - 1 - y)
+              if (d < bestD) {
+                bestD = d
+                best = { x, y }
+              }
+            }
+          }
+        }
+        if (best) this.npc.setPosition(best.x * CELL + CELL / 2, best.y * CELL + CELL / 2)
       }
 
       // Cambia el personaje (sprites, escala y cuerpo de colisión).
@@ -430,8 +546,17 @@ export default function Game({ weaponRef, characterRef }) {
         this.player.play(c.idle)
       }
 
-      // Dispara una flecha hacia el ángulo dado (arco equipado).
-      shootArrow(angle) {
+      // Dispara projectileCount flechas: la principal al ángulo dado y las
+      // extra en abanico simétrico (pequeño ángulo entre cada una).
+      shootArrow(baseAngle) {
+        const count = Math.max(1, playerStats.projectileCount || 1)
+        const spread = Phaser.Math.DegToRad(PROJECTILE_SPREAD_DEG)
+        const start = baseAngle - (spread * (count - 1)) / 2
+        for (let i = 0; i < count; i++) this.fireArrow(start + i * spread)
+      }
+
+      // Crea una sola flecha hacia el ángulo dado.
+      fireArrow(angle) {
         const arrow = this.projectiles.create(this.player.x, this.player.y, 'arrow')
         arrow.setDepth(11).setRotation(angle)
         arrow.body.setSize(14, 2, true)
@@ -455,19 +580,30 @@ export default function Game({ weaponRef, characterRef }) {
           cursor.y
         )
 
+        const weaponType = ITEM_TYPE[weaponRef?.current]
+
         // Con un arco equipado en la main hand, dispara una flecha.
-        if (weaponRef?.current === 'bow') {
+        if (weaponType === 'bow') {
           this.shootArrow(angle)
           return
         }
 
+        const finalScale = ATTACK_SCALE
+
+        // Con espada, el tajo se separa del personaje en la dirección del ataque.
+        const off = weaponType === 'sword' ? SWORD_ATTACK_OFFSET : 0
+        const offX = Math.cos(angle) * off
+        const offY = Math.sin(angle) * off
+
         // Empieza diminuto (~1px) y crece hasta el tamaño final mientras barre.
         const slash = this.add
-          .image(this.player.x, this.player.y, 'slash')
+          .image(this.player.x + offX, this.player.y + offY, 'slash')
           .setDepth(11)
           .setRotation(angle - 0.5)
           .setAlpha(0.95)
           .setScale(0.02)
+        slash.offX = offX
+        slash.offY = offY
         this.activeSlashes.push(slash)
 
         const remove = () => {
@@ -478,8 +614,8 @@ export default function Game({ weaponRef, characterRef }) {
 
         this.tweens.add({
           targets: slash,
-          scaleX: ATTACK_SCALE,
-          scaleY: ATTACK_SCALE,
+          scaleX: finalScale,
+          scaleY: finalScale,
           rotation: angle + 0.5, // barrido
           duration: 130,
           ease: 'Quad.easeOut',
@@ -488,8 +624,8 @@ export default function Game({ weaponRef, characterRef }) {
             this.tweens.add({
               targets: slash,
               alpha: 0,
-              scaleX: ATTACK_SCALE * 1.12,
-              scaleY: ATTACK_SCALE * 1.12,
+              scaleX: finalScale * 1.12,
+              scaleY: finalScale * 1.12,
               duration: 90,
               ease: 'Quad.easeIn',
               onComplete: remove,
@@ -550,7 +686,9 @@ export default function Game({ weaponRef, characterRef }) {
 
         if (vx !== 0 || vy !== 0) {
           const len = Math.hypot(vx, vy)
-          this.player.setVelocity((vx / len) * SPEED, (vy / len) * SPEED)
+          // movementSpeed es un % de aumento sobre el SPEED base (0 = sin bono).
+          const speed = SPEED * (1 + playerStats.movementSpeed / 100)
+          this.player.setVelocity((vx / len) * speed, (vy / len) * speed)
           if (this.player.anims.currentAnim?.key !== char.walk) this.player.play(char.walk, true)
         } else {
           this.player.setVelocity(0, 0)
@@ -563,8 +701,9 @@ export default function Game({ weaponRef, characterRef }) {
         const cursor = this.cameras.main.getWorldPoint(pointer.x, pointer.y)
         this.player.setFlipX(cursor.x < this.player.x)
 
-        // Los ataques activos siguen al personaje mientras se animan.
-        for (const sl of this.activeSlashes) sl.setPosition(this.player.x, this.player.y)
+        // Los ataques activos siguen al personaje (con su offset) mientras se animan.
+        for (const sl of this.activeSlashes)
+          sl.setPosition(this.player.x + (sl.offX || 0), this.player.y + (sl.offY || 0))
 
         // El aura (relleno + aro de fuego) sigue al player.
         if (this.auraOn) {
@@ -572,7 +711,39 @@ export default function Game({ weaponRef, characterRef }) {
           this.drawFireRing(this.player.x, this.player.y, time)
         }
 
+        this.updateEquip()
         this.reveal()
+      }
+
+      // Muestra/oculta los overlays de los items equipados (en cada slot) y los
+      // mantiene encima del personaje. Un item sin animación simplemente no se ve.
+      updateEquip() {
+        const eq = (equipRef && equipRef.current) || {}
+        const charScale = CHARACTERS[this.activeChar].scale
+        for (const slot of Object.keys(eq)) {
+          const itemType = eq[slot] || null
+          const cfg = itemType ? EQUIP_ANIMS[itemType] : null
+          const key = `equip-${itemType}`
+          const playable = cfg && this.anims.exists(key) // textura cargada y anim lista
+          let ov = this.equipOverlays[slot]
+
+          if (playable) {
+            if (!ov) {
+              ov = this.add.sprite(0, 0, key).setDepth(12)
+              this.equipOverlays[slot] = ov
+            }
+            if (this.equipState[slot] !== itemType) {
+              ov.setTexture(key).play(key).setVisible(true)
+              this.equipState[slot] = itemType
+            }
+            ov.setPosition(this.player.x, this.player.y)
+            ov.setScale(cfg.scale != null ? cfg.scale : charScale)
+            ov.setFlipX(this.player.flipX)
+          } else if (ov && ov.visible) {
+            ov.setVisible(false).stop()
+            this.equipState[slot] = null
+          }
+        }
       }
 
       // Descubre el mapa alrededor del jugador (niebla + grilla descubierta).
