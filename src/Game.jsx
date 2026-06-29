@@ -10,6 +10,7 @@ import {
 import { item_list } from './items.js'
 import { playerStats } from './stats.js'
 import { FEATURE_FLAGS } from './flags.js'
+import { MOBS } from './mobs.js'
 
 // Mapa id de item -> type (sword/shield/bow/...), para reglas según el arma.
 const ITEM_TYPE = Object.fromEntries(item_list.map((it) => [it.id, it.type]))
@@ -96,6 +97,10 @@ const AURA_RADIUS = 50 // radio del aura en px (diámetro = AURA_RADIUS * 2)
 const AURA_PARTICLE_SIZE = .4 // escala de las partículas de fuego
 const AURA_DENSITY = 100 // cantidad de partículas distribuidas en el borde
 
+const MOB_HP_BAR_W = 36
+const MOB_HP_BAR_H = 5
+const MOB_HP_BAR_OFFSET_Y = -36
+
 export default function Game({ weaponRef, characterRef, equipRef, onOpenStore }) {
   const containerRef = useRef(null)
   const gameRef = useRef(null)
@@ -141,6 +146,13 @@ export default function Game({ weaponRef, characterRef, equipRef, onOpenStore })
           frameWidth: 64,
           frameHeight: 64,
         })
+        // Enemigos (mobs).
+        for (const [id, m] of Object.entries(MOBS)) {
+          this.load.spritesheet(m.texture, url(`../assets/mobs/${id}.png`), {
+            frameWidth: m.frameW,
+            frameHeight: m.frameH,
+          })
+        }
       }
 
       create() {
@@ -233,6 +245,26 @@ export default function Game({ weaponRef, characterRef, equipRef, onOpenStore })
             hitAreaCallback: Phaser.Geom.Rectangle.Contains,
           })
         this.npc.play('store-idle')
+
+        // Animaciones de mobs (idle y walk comparten la misma secuencia).
+        this.mobs = this.physics.add.group()
+        for (const m of Object.values(MOBS)) {
+          if (!this.textures.exists(m.texture)) {
+            console.warn(`[mobs] falta la textura ${m.texture}`)
+            continue
+          }
+          this.textures.get(m.texture).setFilter(Phaser.Textures.FilterMode.NEAREST)
+          for (const key of [m.idle, m.walk]) {
+            if (this.anims.exists(key)) continue
+            this.anims.create({
+              key,
+              frames: this.anims.generateFrameNumbers(m.texture, { start: 0, end: m.frames - 1 }),
+              frameRate: m.animRate,
+              repeat: -1,
+            })
+          }
+        }
+        this.physics.add.collider(this.mobs, this.walls)
 
         // --- Aura: aro de fuego animado (toggle con E) ---
         // Relleno tenue del aura (cuerpo del círculo).
@@ -427,6 +459,7 @@ export default function Game({ weaponRef, characterRef, equipRef, onOpenStore })
         this.floorLayer.removeAll(true)
         this.walls.clear(true, true)
         this.projectiles?.clear(true, true)
+        this.clearMobs()
 
         const { grid, rooms } = this.buildGrid()
         const isF = (x, y) =>
@@ -533,6 +566,101 @@ export default function Game({ weaponRef, characterRef, equipRef, onOpenStore })
           }
         }
         if (best) this.npc.setPosition(best.x * CELL + CELL / 2, best.y * CELL + CELL / 2)
+
+        this.spawnMobs(isF, spawn)
+      }
+
+      clearMobs() {
+        if (!this.mobs) return
+        for (const mob of this.mobs.getChildren()) {
+          mob.hpBar?.bg?.destroy()
+          mob.hpBar?.fill?.destroy()
+        }
+        this.mobs.clear(true, true)
+      }
+
+      createMobHealthBar(mob, maxHp) {
+        const yOff = MOB_HP_BAR_OFFSET_Y
+        const w = MOB_HP_BAR_W
+        const h = MOB_HP_BAR_H
+        const bg = this.add
+          .rectangle(mob.x, mob.y + yOff, w, h, 0x1a1a1a)
+          .setDepth(11)
+          .setStrokeStyle(1, 0x000000, 0.6)
+        const fill = this.add
+          .rectangle(mob.x - w / 2, mob.y + yOff, w, h, 0xcc2222)
+          .setOrigin(0, 0.5)
+          .setDepth(12)
+        mob.hpBar = { bg, fill, w, yOff, maxHp, hp: maxHp }
+      }
+
+      updateMobHealthBar(mob) {
+        const bar = mob.hpBar
+        if (!bar) return
+        const ratio = Math.max(0, bar.hp / bar.maxHp)
+        bar.bg.setPosition(mob.x, mob.y + bar.yOff)
+        bar.fill.setPosition(mob.x - bar.w / 2, mob.y + bar.yOff)
+        bar.fill.displayWidth = bar.w * ratio
+        bar.fill.setVisible(ratio > 0)
+        bar.bg.setVisible(mob.active)
+      }
+
+      spawnMob(type, x, y) {
+        const cfg = MOBS[type]
+        if (!cfg) return null
+        const mob = this.mobs.create(x, y, cfg.texture, 0)
+        mob.mobType = type
+        mob.setDepth(9)
+        mob.setScale(cfg.scale)
+        mob.setCollideWorldBounds(true)
+        mob.body.setSize(cfg.body.w, cfg.body.h)
+        mob.body.setOffset(cfg.body.ox, cfg.body.oy)
+        mob.play(cfg.idle)
+        this.createMobHealthBar(mob, cfg.hp)
+        return mob
+      }
+
+      spawnMobs(isF, spawn) {
+        this.clearMobs()
+        const floors = []
+        for (let y = 0; y < ROWS; y++) {
+          for (let x = 0; x < COLS; x++) {
+            if (!isF(x, y)) continue
+            if (Math.hypot(x - spawn.cx, y - spawn.cy) < 4) continue
+            floors.push({ x, y })
+          }
+        }
+        Phaser.Utils.Array.Shuffle(floors)
+        const count = Math.min(Phaser.Math.Between(6, 10), floors.length)
+        for (let i = 0; i < count; i++) {
+          const { x, y } = floors[i]
+          this.spawnMob('ghost', x * CELL + CELL / 2, y * CELL + CELL / 2)
+        }
+      }
+
+      updateMobs() {
+        if (!this.mobs) return
+        for (const mob of this.mobs.getChildren()) {
+          if (!mob.active) continue
+          const cfg = MOBS[mob.mobType]
+          if (!cfg) continue
+          const dx = this.player.x - mob.x
+          const dy = this.player.y - mob.y
+          const dist = Math.hypot(dx, dy)
+          const aggro = cfg.aggroRange ?? 200
+          const chasing = dist <= aggro && dist > 4
+
+          if (chasing) {
+            mob.setVelocity((dx / dist) * cfg.speed, (dy / dist) * cfg.speed)
+            if (mob.anims.currentAnim?.key !== cfg.walk) mob.play(cfg.walk, true)
+            mob.setFlipX(dx < 0)
+          } else {
+            mob.setVelocity(0, 0)
+            if (mob.anims.currentAnim?.key !== cfg.idle) mob.play(cfg.idle, true)
+          }
+
+          this.updateMobHealthBar(mob)
+        }
       }
 
       // Cambia el personaje (sprites, escala y cuerpo de colisión).
@@ -712,6 +840,7 @@ export default function Game({ weaponRef, characterRef, equipRef, onOpenStore })
         }
 
         this.updateEquip()
+        this.updateMobs()
         this.reveal()
       }
 
