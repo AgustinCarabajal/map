@@ -8,7 +8,7 @@ function prettyKey(k) {
     .replace(/\b(Hp|Mp)\b/g, (m) => m.toUpperCase())
 }
 
-export default function Character({ open, onClose }) {
+export default function Character({ open, onClose, stats = playerStats }) {
   if (!open) return null
 
   const expPct = Math.min(100, Math.round((playerInfo.exp / playerInfo.expToNext) * 100))
@@ -39,7 +39,7 @@ export default function Character({ open, onClose }) {
 
       <h3>Stats</h3>
       <ul className="stat-list">
-        {Object.entries(playerStats).map(([k, v]) => (
+        {Object.entries(stats).map(([k, v]) => (
           <li key={k}>
             <span className="stat-label">{prettyKey(k)}</span>
             <span className="stat-value">{v}</span>

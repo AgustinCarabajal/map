@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ITEMS, CRAFT_SLOTS, CRAFT_OUT } from './inventoryData.js'
+import { hydrate, CRAFT_SLOTS, CRAFT_OUT } from './inventoryData.js'
 import ItemTooltip from './ItemTooltip.jsx'
 
 function Slot({ slotId, item, big, overId, onDropItem, setOver, clearOver, onTake, onHover, onHoverEnd }) {
@@ -57,7 +57,7 @@ export default function CraftingModal({ open, onClose, slots, onMove, canCraft, 
 
   if (!open) return null
 
-  const resolve = (id) => (slots[id] ? ITEMS[slots[id]] : null)
+  const resolve = (id) => hydrate(slots[id])
   const slotProps = { overId, onDropItem: onMove, setOver, clearOver, onHover: showTip, onHoverEnd: hideTip }
 
   return (

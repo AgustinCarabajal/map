@@ -9,7 +9,9 @@ function prettyKey(k) {
 
 export default function ItemTooltip({ item, x, y }) {
   const base = item.base ? Object.entries(item.base) : []
-  const mods = item.possibleMods || item.effects || []
+  // Mods rolleados de la instancia (label) o, para skills, sus `effects`.
+  const mods =
+    item.mods && item.mods.length ? item.mods.map((m) => m.label) : item.effects || []
 
   // Posición que se mantiene dentro de la pantalla (se voltea cerca de bordes).
   const ref = useRef(null)

@@ -29,12 +29,16 @@ export const playerStats = {
 
   chanceToEvade: 0,
 
-  elementalResist: 0,
+  fireResist: 0,
+  coldResist: 0,
+  lightningResist: 0,
+  sacredResist: 0,
   demonicResist: 0,
 
   physicalDamage: 10,
-  elementalDamage: 5,
-  projectileDamage: 0,
+  fireDamage: 0,
+  coldDamage: 0,
+  lightningDamage: 0,
   sacredDamage: 0,
   demonicDamage: 0,
 

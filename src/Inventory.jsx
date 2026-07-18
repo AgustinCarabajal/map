@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { ITEMS, EQUIP_SLOTS, BACKPACK_SIZE } from './inventoryData.js'
+import { hydrate, EQUIP_SLOTS, BACKPACK_SIZE } from './inventoryData.js'
 import ItemTooltip from './ItemTooltip.jsx'
 
 function Slot({
@@ -8,9 +8,10 @@ function Slot({
   equip,
   overId,
   dragType,
+  held,
   onDropItem,
   onDragStart,
-  onAutoMove,
+  onSlotClick,
   onHover,
   onHoverEnd,
 }) {
@@ -24,6 +25,7 @@ function Slot({
     equip ? `eq eq-${equip.type}` : 'bp',
     showOver ? 'over' : '',
     showInvalid ? 'invalid' : '',
+    held ? 'held' : '',
   ]
     .filter(Boolean)
     .join(' ')
@@ -31,6 +33,7 @@ function Slot({
   return (
     <div
       className={cls}
+      onClick={() => onSlotClick(slotId)}
       onDragOver={(e) => {
         e.preventDefault()
         onDragStart.setOver(slotId)
@@ -55,7 +58,6 @@ function Slot({
             onHoverEnd()
           }}
           onDragEnd={() => onDragStart.clearDrag()}
-          onDoubleClick={() => onAutoMove(slotId)}
           onMouseEnter={(e) => onHover(item, e)}
           onMouseMove={(e) => onHover(item, e)}
           onMouseLeave={onHoverEnd}
@@ -67,9 +69,10 @@ function Slot({
   )
 }
 
-export default function Inventory({ open, onClose, slots, onMove, onAutoMove }) {
+export default function Inventory({ open, onClose, slots, onMove, onAutoMove, gold = 0 }) {
   const [overId, setOverId] = useState(null)
   const [dragType, setDragType] = useState(null)
+  const [heldId, setHeldId] = useState(null) // slot "levantado" con un click
   const [tip, setTip] = useState(null) // { item, x, y } para el tooltip
 
   const showTip = useCallback((item, e) => setTip({ item, x: e.clientX, y: e.clientY }), [])
@@ -88,10 +91,25 @@ export default function Inventory({ open, onClose, slots, onMove, onAutoMove }) 
   const handleDrop = (targetId, sourceId) => {
     setOverId(null)
     setDragType(null)
+    setHeldId(null)
     onMove(targetId, sourceId)
   }
 
-  const resolve = (id) => (slots[id] ? ITEMS[slots[id]] : null)
+  // Click: si no hay nada levantado, levanta el item del slot; si ya hay algo
+  // levantado, lo suelta en el slot clickeado (o cancela si es el mismo).
+  const handleSlotClick = useCallback(
+    (slotId) => {
+      setHeldId((cur) => {
+        if (cur == null) return slots[slotId] ? slotId : null // levantar
+        if (cur === slotId) return null // click de nuevo en el mismo -> soltar
+        onMove(slotId, cur) // soltar en el destino
+        return null
+      })
+    },
+    [slots, onMove]
+  )
+
+  const resolve = (id) => hydrate(slots[id])
 
   if (!open) return null
 
@@ -99,6 +117,7 @@ export default function Inventory({ open, onClose, slots, onMove, onAutoMove }) 
     <aside className="inventory">
       <header className="inventory-header">
         <h2>Inventory</h2>
+        <span className="inventory-gold" title="Gold">🪙 {gold}</span>
         <button className="inventory-close" onClick={onClose} title="Close (I)">
           ✕
         </button>
@@ -115,9 +134,10 @@ export default function Inventory({ open, onClose, slots, onMove, onAutoMove }) 
               item={resolve(eq.id)}
               overId={overId}
               dragType={dragType}
+              held={heldId === eq.id}
               onDropItem={handleDrop}
               onDragStart={dragHelpers}
-              onAutoMove={onAutoMove}
+              onSlotClick={handleSlotClick}
               onHover={showTip}
               onHoverEnd={hideTip}
             />
@@ -137,9 +157,10 @@ export default function Inventory({ open, onClose, slots, onMove, onAutoMove }) 
                 item={resolve(id)}
                 overId={overId}
                 dragType={dragType}
+                held={heldId === id}
                 onDropItem={handleDrop}
                 onDragStart={dragHelpers}
-                onAutoMove={onAutoMove}
+                onSlotClick={handleSlotClick}
                 onHover={showTip}
                 onHoverEnd={hideTip}
               />
@@ -149,7 +170,7 @@ export default function Inventory({ open, onClose, slots, onMove, onAutoMove }) 
       </section>
 
       <p className="inventory-hint">
-        Drag items between slots · double-click to equip/unequip · <b>I</b> closes
+        Click an item to pick it up, click a slot to drop it · drag also works · <b>I</b> closes
       </p>
 
       {tip && <ItemTooltip item={tip.item} x={tip.x} y={tip.y} />}

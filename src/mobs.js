@@ -15,5 +15,6 @@ export const MOBS = {
     hp: 40,
     defense: 3,
     aggroRange: 120,
+    gold: { min: 3, max: 12 }, // oro que suelta al morir (rango aleatorio)
   },
 }

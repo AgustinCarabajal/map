@@ -8,6 +8,7 @@ import {
   TEXTURE_FRAMES,
 } from './tileset.js'
 import { item_list } from './items.js'
+import { rollItem } from './modifiers.js'
 import { playerStats } from './stats.js'
 import { FEATURE_FLAGS } from './flags.js'
 import { MOBS } from './mobs.js'
@@ -85,6 +86,59 @@ const REVEAL_PX = REVEAL_CELLS * CELL
 const FOG_COLOR = 0x05070d
 const MINIMAP_W = 220 // ancho del minimapa en px
 
+// Tipos de mapa. 'original' usa tiles.png (render clásico). 'stone' y 'gold'
+// son los 2 temas del tileset assets/map_00/tileset.png. Cada tema tiene 5
+// floors (~110x112) y 4 piezas de pared para autotiling por orientación (medidas
+// de la imagen): interior/top (bloque con cara superior), side (vertical fina,
+// muros laterales), bottom (horizontal fina, muros de abajo) y corner (bloque
+// chico de esquina). Se registran como sub-frames de 'map00' en create().
+const MAP_THEMES = {
+  original: { label: 'Original' },
+  stone: {
+    label: 'Piedra',
+    floorNames: ['stone-floor0', 'stone-floor1', 'stone-floor2', 'stone-floor3', 'stone-floor4'],
+    // Piezas de pared por orientación (ver pickWallPiece en generate()).
+    walls: {
+      top: 'stone-wall-top',
+      side: 'stone-wall-side',
+      bottom: 'stone-wall-bottom',
+      corner: 'stone-wall-corner',
+    },
+    frames: [
+      ['stone-floor0', 30, 32, 110, 112],
+      ['stone-floor1', 165, 32, 110, 112],
+      ['stone-floor2', 299, 32, 112, 112],
+      ['stone-floor3', 435, 32, 112, 112],
+      ['stone-floor4', 571, 32, 110, 112],
+      ['stone-wall-top', 157, 228, 120, 121],
+      ['stone-wall-side', 324, 228, 18, 112],
+      ['stone-wall-bottom', 159, 394, 114, 26],
+      ['stone-wall-corner', 317, 387, 33, 37],
+    ],
+  },
+  gold: {
+    label: 'Oro',
+    floorNames: ['gold-floor0', 'gold-floor1', 'gold-floor2', 'gold-floor3', 'gold-floor4'],
+    walls: {
+      top: 'gold-wall-top',
+      side: 'gold-wall-side',
+      bottom: 'gold-wall-bottom',
+      corner: 'gold-wall-corner',
+    },
+    frames: [
+      ['gold-floor0', 30, 544, 110, 112],
+      ['gold-floor1', 165, 544, 110, 112],
+      ['gold-floor2', 299, 544, 112, 112],
+      ['gold-floor3', 435, 544, 112, 112],
+      ['gold-floor4', 571, 544, 110, 112],
+      ['gold-wall-top', 147, 759, 122, 118],
+      ['gold-wall-side', 372, 759, 17, 113],
+      ['gold-wall-bottom', 146, 915, 126, 26],
+      ['gold-wall-corner', 361, 910, 32, 36],
+    ],
+  },
+}
+
 // Tamaño final del ataque (la textura es ~96px; 0.5 = la mitad).
 const ATTACK_SCALE = 0.5
 // Con una espada equipada el tajo aparece un poco más alejado del personaje (px).
@@ -101,7 +155,7 @@ const MOB_HP_BAR_W = 24
 const MOB_HP_BAR_H = 1
 const MOB_HP_BAR_OFFSET_Y = -36
 
-export default function Game({ weaponRef, characterRef, equipRef, onOpenStore }) {
+export default function Game({ weaponRef, characterRef, equipRef, reducedVisionRef, mapThemeRef, combatRef, onOpenStore, onPickupItem, onAddGold }) {
   const containerRef = useRef(null)
   const gameRef = useRef(null)
 
@@ -119,6 +173,8 @@ export default function Game({ weaponRef, characterRef, equipRef, onOpenStore })
         this.load.image('wallH', url('../assets/walls/top-horizontal.png'))
         this.load.image('wallV', url('../assets/walls/top_vertical.png'))
         this.load.image('wallB', url('../assets/walls/bottom_vertical.png'))
+        // Tileset del 2do tipo de mapa (temas stone / gold).
+        this.load.image('map00', url('../assets/map_00/tileset.png'))
         // Carga los spritesheets de cada personaje (idle/walk) según su tamaño
         // de frame, sin duplicar texturas (p. ej. human reusa idle como walk).
         const seen = new Set()
@@ -145,6 +201,11 @@ export default function Game({ weaponRef, characterRef, equipRef, onOpenStore })
         this.load.spritesheet('store-idle', url('../assets/npc/store-idle.png'), {
           frameWidth: 64,
           frameHeight: 64,
+        })
+        // Cofre: 2 frames de 48x48 (frame 0 = cerrado, frame 1 = abierto).
+        this.load.spritesheet('chest', url('../assets/chest/chest.png'), {
+          frameWidth: 48,
+          frameHeight: 48,
         })
         // Enemigos (mobs).
         for (const [id, m] of Object.entries(MOBS)) {
@@ -208,6 +269,11 @@ export default function Game({ weaponRef, characterRef, equipRef, onOpenStore })
 
         // Capas: suelos (contenedor, fondo) y paredes (grupo estático = colisión).
         this.floorLayer = this.add.container(0, 0).setDepth(0)
+        // Capa aparte para los tiles de esquina: depth mayor que el suelo/paredes
+        // (pero por debajo de la niebla) para que siempre queden superpuestos.
+        this.cornerLayer = this.add.container(0, 0).setDepth(2)
+        // Sombra sobre el suelo en los bordes que dan a una pared (contraste).
+        this.shadowGfx = this.add.graphics().setDepth(1)
         this.walls = this.physics.add.staticGroup()
 
         // Player (personaje inicial según selección).
@@ -226,6 +292,17 @@ export default function Game({ weaponRef, characterRef, equipRef, onOpenStore })
 
         // NPC mercader: aparece en un borde del mapa; click abre la mesa de crafteo.
         this.textures.get('store-idle').setFilter(Phaser.Textures.FilterMode.NEAREST)
+        this.textures.get('chest').setFilter(Phaser.Textures.FilterMode.NEAREST)
+        // Sub-frames del tileset map00 (floors + bloque de pared por tema).
+        if (this.textures.exists('map00')) {
+          const tex = this.textures.get('map00')
+          tex.setFilter(Phaser.Textures.FilterMode.NEAREST)
+          for (const key of ['stone', 'gold']) {
+            for (const [name, x, y, w, h] of MAP_THEMES[key].frames) {
+              if (!tex.has(name)) tex.add(name, 0, x, y, w, h)
+            }
+          }
+        }
         if (!this.anims.exists('store-idle')) {
           this.anims.create({
             key: 'store-idle',
@@ -393,6 +470,14 @@ export default function Game({ weaponRef, characterRef, equipRef, onOpenStore })
         this.textures.get('arrow').setFilter(Phaser.Textures.FilterMode.NEAREST)
         this.projectiles = this.physics.add.group()
         this.physics.add.collider(this.projectiles, this.walls, (arrow) => arrow.destroy())
+        // El proyectil daña al mob al impactar (contacto real entre cuerpos de
+        // física), con el mismo daño que el ataque cuerpo a cuerpo. La flecha se
+        // consume en el impacto.
+        this.physics.add.overlap(this.projectiles, this.mobs, (arrow, mob) => {
+          if (!arrow.active || !mob.active) return
+          this.damageMob(mob, this.attackDamage())
+          arrow.destroy()
+        })
 
         this.input.on('pointerdown', (pointer) => {
           if (!pointer.leftButtonDown()) return
@@ -405,6 +490,18 @@ export default function Game({ weaponRef, characterRef, equipRef, onOpenStore })
             Math.abs(wp.y - this.npc.y) <= 19
           ) {
             onOpenStore?.()
+            return
+          }
+          // Click sobre un cofre cerrado cercano -> abrirlo (y no atacar).
+          const chest = this.getChestAtPoint(wp)
+          if (chest) {
+            this.openChest(chest)
+            return
+          }
+          // Click sobre un item del suelo cercano -> recogerlo (y no atacar).
+          const loot = this.getLootAtPoint(wp)
+          if (loot) {
+            this.pickupLoot(loot)
             return
           }
           this.attack()
@@ -452,13 +549,48 @@ export default function Game({ weaponRef, characterRef, equipRef, onOpenStore })
             carveH(a.cx, b.cx, b.cy)
           }
         }
+
+        // Limpieza: abrir separadores finos. Si una celda de pared tiene suelo a
+        // <=2 celdas en dos direcciones opuestas (sólo pared entre medio), la
+        // convertimos en suelo. Así desaparecen las paredes "sandwich" (suelo de
+        // los dos lados) y los separadores finos entre salas: los espacios se
+        // fusionan y quedan más grandes, y toda pared termina con suelo de un
+        // lado y negro (exterior) del otro. Sólo agrega suelo -> no rompe la
+        // conectividad ni el spawn.
+        const floorWithin = (x, y, dx, dy) => {
+          for (let s = 1; s <= 2; s++) {
+            const nx = x + dx * s
+            const ny = y + dy * s
+            if (nx < 0 || ny < 0 || nx >= COLS || ny >= ROWS) return false
+            if (grid[ny][nx] === 1) return true
+          }
+          return false
+        }
+        let changed = true
+        while (changed) {
+          changed = false
+          for (let y = 1; y < ROWS - 1; y++)
+            for (let x = 1; x < COLS - 1; x++) {
+              if (grid[y][x] === 1) continue
+              const opH = floorWithin(x, y, -1, 0) && floorWithin(x, y, 1, 0)
+              const opV = floorWithin(x, y, 0, -1) && floorWithin(x, y, 0, 1)
+              if (opH || opV) {
+                grid[y][x] = 1
+                changed = true
+              }
+            }
+        }
         return { grid, rooms }
       }
 
       generate() {
         this.floorLayer.removeAll(true)
+        this.cornerLayer.removeAll(true)
+        this.shadowGfx.clear()
         this.walls.clear(true, true)
         this.projectiles?.clear(true, true)
+        for (const sl of this.activeSlashes || []) sl.destroy()
+        this.activeSlashes = []
         this.clearMobs()
 
         const { grid, rooms } = this.buildGrid()
@@ -498,37 +630,122 @@ export default function Game({ weaponRef, characterRef, equipRef, onOpenStore })
 
         const rnd = (arr) => Phaser.Utils.Array.GetRandom(arr)
 
+        // Tema del mapa: 'original' (tiles.png) o 'stone'/'gold' (map00).
+        this.theme = (mapThemeRef && mapThemeRef.current) || 'original'
+        const theme = MAP_THEMES[this.theme] || MAP_THEMES.original
+        const themed = !!theme.floorNames && this.textures.exists('map00')
+
         for (let y = 0; y < ROWS; y++) {
           for (let x = 0; x < COLS; x++) {
             const px = x * CELL
             const py = y * CELL
             if (isF(x, y)) {
-              const img = this.add
-                .image(px, py, 'floors', rnd(FLOOR_FRAMES).name)
-                .setOrigin(0)
-                .setDisplaySize(CELL, CELL)
+              const img = themed
+                ? this.add.image(px, py, 'map00', rnd(theme.floorNames))
+                : this.add.image(px, py, 'floors', rnd(FLOOR_FRAMES).name)
+              img.setOrigin(0).setDisplaySize(CELL, CELL)
               this.floorLayer.add(img)
+              // Sombra en el borde del suelo que da a una pared (degradado suave
+              // apilando franjas de alpha decreciente hacia el interior).
+              const g = this.shadowGfx
+              const bands = [
+                [0, 5, 0.32],
+                [5, 10, 0.18],
+                [10, 15, 0.08],
+              ]
+              for (const [a, b, al] of bands) {
+                const t = b - a
+                g.fillStyle(0x000000, al)
+                if (!isF(x, y - 1)) g.fillRect(px, py + a, CELL, t) // pared arriba
+                if (!isF(x, y + 1)) g.fillRect(px, py + CELL - b, CELL, t) // abajo
+                if (!isF(x - 1, y)) g.fillRect(px + a, py, t, CELL) // izquierda
+                if (!isF(x + 1, y)) g.fillRect(px + CELL - b, py, t, CELL) // derecha
+              }
               continue
             }
             const r = role[y][x]
             if (!r) continue
 
-            let texKey, frame
-            if (r === 'H') {
-              const pool =
-                Math.random() < FEATURE_CHANCE ? WALL_H_FEATURES : WALL_H_FRAMES
-              texKey = 'wallH'
-              frame = rnd(pool).name
-            } else if (r === 'V') {
-              texKey = 'wallV' // imagen completa = tile único
-              frame = undefined
-            } else {
-              texKey = 'wallB'
-              frame = rnd(WALL_B_FRAMES).name
-            }
-
             // El tile de pared es además el cuerpo de colisión estático.
-            const wall = this.walls.create(px + CELL / 2, py + CELL / 2, texKey, frame)
+            let wall
+            if (themed) {
+              // Autotiling por orientación. Solo usamos 2 piezas de pared:
+              // 'bottom' (horizontal fina) para muros arriba/abajo y 'side'
+              // (vertical fina) para muros laterales; nunca el bloque interior.
+              // El tile de esquina se dibuja aparte, siempre superpuesto encima.
+              const fN = isF(x, y - 1)
+              const fS = isF(x, y + 1)
+              const fW = isF(x - 1, y)
+              const fE = isF(x + 1, y)
+              const isCorner = (fN || fS) && (fW || fE)
+
+              // Colisión: bloque invisible que llena la celda (gameplay igual).
+              wall = this.walls.create(px + CELL / 2, py + CELL / 2, 'map00', theme.walls.side)
+              wall.setVisible(false)
+
+              // Cada pieza a escala real (misma relación que el suelo, ~111px ->
+              // CELL), anclada al borde que da al suelo -> conservan su proporción.
+              const S = CELL / 111
+              const addPiece = (name, oX, oY, vX, vY, layer) => {
+                const fr = this.textures.getFrame('map00', name)
+                const im = this.add
+                  .image(vX, vY, 'map00', name)
+                  .setOrigin(oX, oY)
+                  .setDisplaySize(fr.width * S, fr.height * S)
+                ;(layer || this.floorLayer).add(im)
+                return im
+              }
+
+              if (isCorner) {
+                // Vértice que da al suelo (E->derecha/W->izq, S->abajo/N->arriba).
+                const cOx = fE ? 1 : 0
+                const cOy = fS ? 1 : 0
+                const cVx = fE ? px + CELL : px
+                const cVy = fS ? py + CELL : py
+                // Muro horizontal (bottom) y lateral (side) que se juntan aquí.
+                addPiece(theme.walls.bottom, 0.5, cOy, px + CELL / 2, cVy)
+                addPiece(theme.walls.side, cOx, 0.5, cVx, py + CELL / 2)
+                // Tile de esquina siempre encima (capa aparte, mayor depth).
+                addPiece(theme.walls.corner, cOx, cOy, cVx, cVy, this.cornerLayer)
+              } else if (fN || fS) {
+                // Muro horizontal: pieza 'bottom' pegada al borde con suelo.
+                addPiece(theme.walls.bottom, 0.5, fS ? 1 : 0, px + CELL / 2, fS ? py + CELL : py)
+              } else if (fW || fE) {
+                // Muro lateral: pieza 'side' pegada al borde con suelo.
+                addPiece(theme.walls.side, fE ? 1 : 0, 0.5, fE ? px + CELL : px, py + CELL / 2)
+              } else {
+                // Esquina convexa (solo suelo en diagonal): tile de esquina en el
+                // vértice que apunta al suelo, siempre superpuesto encima.
+                const dSE = isF(x + 1, y + 1)
+                const dSW = isF(x - 1, y + 1)
+                const dNE = isF(x + 1, y - 1)
+                const east = dSE || dNE
+                const south = dSE || dSW
+                addPiece(
+                  theme.walls.corner,
+                  east ? 1 : 0,
+                  south ? 1 : 0,
+                  east ? px + CELL : px,
+                  south ? py + CELL : py,
+                  this.cornerLayer,
+                )
+              }
+            } else {
+              let texKey, frame
+              if (r === 'H') {
+                const pool =
+                  Math.random() < FEATURE_CHANCE ? WALL_H_FEATURES : WALL_H_FRAMES
+                texKey = 'wallH'
+                frame = rnd(pool).name
+              } else if (r === 'V') {
+                texKey = 'wallV' // imagen completa = tile único
+                frame = undefined
+              } else {
+                texKey = 'wallB'
+                frame = rnd(WALL_B_FRAMES).name
+              }
+              wall = this.walls.create(px + CELL / 2, py + CELL / 2, texKey, frame)
+            }
             wall.setDisplaySize(CELL, CELL).setDepth(1)
             wall.refreshBody()
           }
@@ -568,6 +785,7 @@ export default function Game({ weaponRef, characterRef, equipRef, onOpenStore })
         if (best) this.npc.setPosition(best.x * CELL + CELL / 2, best.y * CELL + CELL / 2)
 
         this.spawnMobs(isF, spawn)
+        this.spawnChests(isF, spawn)
       }
 
       clearMobs() {
@@ -638,6 +856,201 @@ export default function Game({ weaponRef, characterRef, equipRef, onOpenStore })
         }
       }
 
+      // --- Cofres ---
+      // Coloca cofres cerrados en celdas de suelo al azar (lejos del spawn).
+      spawnChests(isF, spawn) {
+        for (const c of this.chests || []) c.destroy()
+        this.chests = []
+        for (const b of this.chestLoot || []) b.destroy()
+        this.chestLoot = []
+
+        const floors = []
+        for (let y = 0; y < ROWS; y++) {
+          for (let x = 0; x < COLS; x++) {
+            if (!isF(x, y)) continue
+            if (Math.hypot(x - spawn.cx, y - spawn.cy) < 3) continue
+            floors.push({ x, y })
+          }
+        }
+        Phaser.Utils.Array.Shuffle(floors)
+        const count = Math.min(Phaser.Math.Between(3, 6), floors.length)
+        for (let i = 0; i < count; i++) {
+          const { x, y } = floors[i]
+          this.spawnChest(x * CELL + CELL / 2, y * CELL + CELL / 2)
+        }
+      }
+
+      spawnChest(x, y) {
+        const chest = this.add.sprite(x, y, 'chest', 0).setDepth(8).setScale(0.7)
+        chest.opened = false
+        this.chests.push(chest)
+        return chest
+      }
+
+      // Devuelve el cofre cerrado bajo el punto clickeado, si el jugador está cerca.
+      getChestAtPoint(wp) {
+        for (const chest of this.chests || []) {
+          if (!chest.active || chest.opened) continue
+          if (Math.abs(wp.x - chest.x) > 24 || Math.abs(wp.y - chest.y) > 24) continue
+          if (Math.hypot(this.player.x - chest.x, this.player.y - chest.y) <= 80) return chest
+        }
+        return null
+      }
+
+      // Abre el cofre: sprite abierto + destello + loot random como badges en el suelo.
+      openChest(chest) {
+        if (!chest || chest.opened) return
+        chest.opened = true
+        chest.setFrame(1)
+        this.chestFlash(chest.x, chest.y)
+
+        // Loot: items + un badge de oro, todos dispersos alrededor del cofre.
+        const items = this.rollChestLoot()
+        const gold = Phaser.Math.Between(10, 60)
+        const drops = items.length + 1
+        const scatter = (i, fn) => {
+          const ang = (i / drops) * Math.PI * 2 + Phaser.Math.FloatBetween(-0.35, 0.35)
+          const r = 30 + Phaser.Math.Between(0, 10)
+          fn(chest.x + Math.cos(ang) * r, chest.y + Math.sin(ang) * r)
+        }
+        items.forEach((item, i) => scatter(i, (x, y) => this.dropItemBadge(item, x, y)))
+        scatter(items.length, (x, y) => this.dropGoldBadge(gold, x, y))
+      }
+
+      // Destello: círculo aditivo que se expande y se desvanece.
+      chestFlash(x, y) {
+        const flash = this.add
+          .circle(x, y - 6, 10, 0xffffff, 0.9)
+          .setDepth(20)
+          .setBlendMode(Phaser.BlendModes.ADD)
+        this.tweens.add({
+          targets: flash,
+          scale: 4,
+          alpha: 0,
+          duration: 320,
+          ease: 'Quad.easeOut',
+          onComplete: () => flash.destroy(),
+        })
+      }
+
+      // Loot random: 1-3 items. Cada uno es una INSTANCIA generada con rollItem
+      // (copia base + 1..5 mods rolleados de su pool propio), así el mismo item
+      // sale distinto en cada cofre.
+      rollChestLoot() {
+        const n = Phaser.Math.Between(1, 3)
+        const loot = []
+        for (let i = 0; i < n; i++) {
+          const tpl = Phaser.Utils.Array.GetRandom(item_list)
+          loot.push(rollItem(tpl.id) || tpl)
+        }
+        return loot
+      }
+
+      // Badge en el suelo con el nombre del item (aparece con un pop).
+      // Crea un badge de loot en el suelo (item u oro). Aparece con un pop.
+      makeLootBadge(label, x, y, { border = 0xfbbf24, color = '#f8fafc' } = {}) {
+        if (!this.chestLoot) this.chestLoot = []
+        const text = this.add
+          .text(0, 0, label, {
+            // Misma fuente que la UI/stats del inventario, y resolución alta para
+            // que no se vea borroso bajo el zoom de la cámara (ZOOM).
+            fontFamily: '"Pixelify Sans", system-ui, sans-serif',
+            fontSize: '7px',
+            color,
+            resolution: Math.ceil(ZOOM * (window.devicePixelRatio || 1)),
+          })
+          .setOrigin(0.5)
+        const w = Math.ceil(text.width) + 8
+        const h = Math.ceil(text.height) + 4
+        const bg = this.add.graphics()
+        bg.fillStyle(0x0f172a, 0.92)
+        bg.fillRect(-w / 2, -h / 2, w, h)
+        bg.lineStyle(1, border, 0.9)
+        bg.strokeRect(-w / 2, -h / 2, w, h)
+        const badge = this.add.container(x, y, [bg, text]).setDepth(12).setScale(0)
+        this.tweens.add({ targets: badge, scale: 1, duration: 180, ease: 'Back.easeOut' })
+        this.chestLoot.push(badge)
+        return badge
+      }
+
+      // Color del badge según el item:
+      //   jewel -> amarillo · skill (book_*) -> verde · resto por # de stats:
+      //   0 -> blanco · 1-3 -> azul · 4-5 -> turquesa.
+      lootColor(item) {
+        if (item.type === 'jewel') return { color: '#facc15', border: 0xfacc15 }
+        if (item.type?.startsWith('book_')) return { color: '#4ade80', border: 0x4ade80 }
+        const n = (item.mods || []).length
+        if (n >= 4) return { color: '#5eead4', border: 0x5eead4 } // turquesa (4-5)
+        if (n >= 1) return { color: '#60a5fa', border: 0x60a5fa } // azul (1-3)
+        return { color: '#f8fafc', border: 0x94a3b8 } // blanco (0 stats)
+      }
+
+      // Badge de un item (nombre), coloreado por rareza. Al recogerlo va al inventario.
+      dropItemBadge(item, x, y) {
+        const badge = this.makeLootBadge(item.name || item.id, x, y, this.lootColor(item))
+        badge.itemId = item.id
+        badge.item = item // instancia con mods rolleados (se guarda en el inventario)
+        return badge
+      }
+
+      // Badge de oro ("### Gold"): texto blanco, borde dorado.
+      dropGoldBadge(amount, x, y) {
+        const badge = this.makeLootBadge(`${amount} Gold`, x, y, {
+          border: 0xfacc15,
+          color: '#f8fafc',
+        })
+        badge.gold = amount
+        return badge
+      }
+
+      // Devuelve el badge de loot bajo el punto clickeado si el jugador está cerca.
+      getLootAtPoint(wp) {
+        for (const badge of this.chestLoot || []) {
+          if (!badge.active || badge.picked) continue
+          const b = badge.getBounds()
+          if (wp.x < b.x - 4 || wp.x > b.right + 4 || wp.y < b.y - 4 || wp.y > b.bottom + 4)
+            continue
+          if (Math.hypot(this.player.x - badge.x, this.player.y - badge.y) <= 80) return badge
+        }
+        return null
+      }
+
+      // Recoge un item (click): lo suma al inventario vía onPickupItem. Si la
+      // mochila está llena, el item se queda en el piso.
+      pickupLoot(badge) {
+        if (!badge || badge.picked) return
+        if (badge.gold) {
+          onAddGold?.(badge.gold) // el oro no ocupa espacio de inventario
+        } else {
+          const ok = onPickupItem ? onPickupItem(badge.item || badge.itemId) : false
+          if (!ok) return // mochila llena: el item se queda en el piso
+        }
+        badge.picked = true
+        const i = this.chestLoot.indexOf(badge)
+        if (i >= 0) this.chestLoot.splice(i, 1)
+        this.tweens.add({
+          targets: badge,
+          y: badge.y - 14,
+          alpha: 0,
+          duration: 180,
+          onComplete: () => badge.destroy(),
+        })
+      }
+
+      // Cursor "pointer" cuando el mouse está sobre un cofre o item interactuable
+      // y el jugador está al lado (indica que se puede abrir / agarrar).
+      updateCursor() {
+        if (!this.player) return
+        const p = this.input.activePointer
+        const wp = this.cameras.main.getWorldPoint(p.x, p.y)
+        const cursor =
+          this.getChestAtPoint(wp) || this.getLootAtPoint(wp) ? 'pointer' : 'default'
+        if (cursor !== this._cursor) {
+          this._cursor = cursor
+          this.input.setDefaultCursor(cursor)
+        }
+      }
+
       updateMobs() {
         if (!this.mobs) return
         for (const mob of this.mobs.getChildren()) {
@@ -663,6 +1076,116 @@ export default function Game({ weaponRef, characterRef, equipRef, onOpenStore })
         }
       }
 
+      // Stats efectivas (base + equipo) que calcula React en combatRef; si aún
+      // no llegó, usa las base de playerStats.
+      stat(key) {
+        const s = combatRef?.current?.stats || playerStats
+        return s[key] ?? playerStats[key] ?? 0
+      }
+
+      // Daño de un golpe: la stat de daño según el arma/skill equipada (su tag).
+      // Ej: book_dex con tag 'demonic' -> usa demonicDamage.
+      attackDamage() {
+        const type = combatRef?.current?.damageType || 'physicalDamage'
+        return this.stat(type)
+      }
+
+      damageMob(mob, amount) {
+        const bar = mob.hpBar
+        if (!bar || !mob.active) return
+        bar.hp = Math.max(0, bar.hp - amount)
+        this.updateMobHealthBar(mob)
+        if (bar.hp <= 0) this.killMob(mob)
+      }
+
+      killMob(mob) {
+        // Oro al matar: muestra "+# gold" flotante (fade) y lo suma al contador.
+        const goldCfg = MOBS[mob.mobType]?.gold
+        if (goldCfg && onAddGold) {
+          const g = Phaser.Math.Between(goldCfg.min, goldCfg.max)
+          if (g > 0) {
+            onAddGold(g)
+            this.floatingText(mob.x, mob.y + MOB_HP_BAR_OFFSET_Y, `+${g} gold`)
+          }
+        }
+        mob.hpBar?.bg?.destroy()
+        mob.hpBar?.fill?.destroy()
+        mob.hpBar = null
+        mob.destroy()
+      }
+
+      // Texto flotante que sube y se desvanece (feedback de oro al matar).
+      floatingText(x, y, label, color = '#fde047') {
+        const t = this.add
+          .text(x, y, label, {
+            fontFamily: '"Pixelify Sans", system-ui, sans-serif',
+            fontSize: '9px',
+            color,
+            stroke: '#000000',
+            strokeThickness: 2,
+            resolution: Math.ceil(ZOOM * (window.devicePixelRatio || 1)),
+          })
+          .setOrigin(0.5)
+          .setDepth(21)
+        this.tweens.add({
+          targets: t,
+          y: y - 24,
+          alpha: 0,
+          duration: 700,
+          ease: 'Quad.easeOut',
+          onComplete: () => t.destroy(),
+        })
+      }
+
+      // El golpe solo cuenta si el mob toca la MEDIA LUNA visible del tajo, no el
+      // bounding box del sprite. La geometría coincide con la textura 'slash':
+      // un arco de radio exterior R y grosor T, con abertura ±SLASH_HALF_ARC
+      // alrededor de la dirección del tajo. Escalamos por el tamaño actual del
+      // sprite (crece/barre en el tween) para que el área de daño siga exactamente
+      // a la animación cuadro a cuadro.
+      checkSlashHits() {
+        if (!this.mobs || !this.activeSlashes?.length) return
+        const R = 44 // radio exterior (igual que la textura 'slash')
+        const T = 10 // grosor máximo de la banda
+        const SLASH_HALF_ARC = Phaser.Math.DegToRad(54)
+        for (const slash of this.activeSlashes) {
+          if (!slash.active) continue
+          const scale = slash.scaleX || 0
+          const outer = R * scale
+          const inner = (R - T) * scale
+          for (const mob of this.mobs.getChildren()) {
+            if (!mob.active) continue
+            if (slash.hitMobs?.has(mob)) continue
+
+            // Centro y radio aproximado del mob (su cuerpo de colisión) como
+            // tolerancia de "contacto".
+            const body = mob.body
+            const mobR = body
+              ? Math.max(body.width, body.height) / 2
+              : (mob.displayWidth || 24) / 2
+            const mcx = body ? body.center.x : mob.x
+            const mcy = body ? body.center.y : mob.y
+
+            const dx = mcx - slash.x
+            const dy = mcy - slash.y
+            const dist = Math.hypot(dx, dy)
+
+            // 1) Distancia dentro de la banda de la media luna (con tolerancia).
+            if (dist > outer + mobR || dist < inner - mobR) continue
+
+            // 2) Dentro de la abertura angular del tajo (su rotación actual).
+            const angTo = Math.atan2(dy, dx)
+            const angDelta = Math.abs(Phaser.Math.Angle.Wrap(angTo - slash.rotation))
+            const angTol = Math.atan2(mobR, Math.max(dist, 1))
+            if (angDelta > SLASH_HALF_ARC + angTol) continue
+
+            if (!slash.hitMobs) slash.hitMobs = new Set()
+            slash.hitMobs.add(mob)
+            this.damageMob(mob, this.attackDamage())
+          }
+        }
+      }
+
       // Cambia el personaje (sprites, escala y cuerpo de colisión).
       applyCharacter(key) {
         const c = CHARACTERS[key] || CHARACTERS.soldier
@@ -677,7 +1200,7 @@ export default function Game({ weaponRef, characterRef, equipRef, onOpenStore })
       // Dispara projectileCount flechas: la principal al ángulo dado y las
       // extra en abanico simétrico (pequeño ángulo entre cada una).
       shootArrow(baseAngle) {
-        const count = Math.max(1, playerStats.projectileCount || 1)
+        const count = Math.max(1, this.stat('projectileCount') || 1)
         const spread = Phaser.Math.DegToRad(PROJECTILE_SPREAD_DEG)
         const start = baseAngle - (spread * (count - 1)) / 2
         for (let i = 0; i < count; i++) this.fireArrow(start + i * spread)
@@ -732,6 +1255,7 @@ export default function Game({ weaponRef, characterRef, equipRef, onOpenStore })
           .setScale(0.02)
         slash.offX = offX
         slash.offY = offY
+        slash.hitMobs = new Set()
         this.activeSlashes.push(slash)
 
         const remove = () => {
@@ -802,6 +1326,20 @@ export default function Game({ weaponRef, characterRef, equipRef, onOpenStore })
         if (characterRef && characterRef.current && characterRef.current !== this.activeChar) {
           this.applyCharacter(characterRef.current)
         }
+
+        // Cambio de tipo de mapa desde el menú -> regenera con el nuevo tema.
+        if (mapThemeRef && this.theme !== mapThemeRef.current) {
+          this.generate()
+          return
+        }
+
+        // Modo de visión reducida (niebla de guerra): toggleable desde el menú
+        // de pruebas. Cuando está apagado, se oculta la capa de niebla (se ve
+        // todo el mapa); cuando está prendido, se mantiene la visión limitada.
+        if (this.fog) {
+          this.fog.setVisible(reducedVisionRef ? reducedVisionRef.current !== false : true)
+        }
+
         const char = CHARACTERS[this.activeChar]
 
         const { W, A, S, D } = this.keys
@@ -815,7 +1353,7 @@ export default function Game({ weaponRef, characterRef, equipRef, onOpenStore })
         if (vx !== 0 || vy !== 0) {
           const len = Math.hypot(vx, vy)
           // movementSpeed es un % de aumento sobre el SPEED base (0 = sin bono).
-          const speed = SPEED * (1 + playerStats.movementSpeed / 100)
+          const speed = SPEED * (1 + this.stat('movementSpeed') / 100)
           this.player.setVelocity((vx / len) * speed, (vy / len) * speed)
           if (this.player.anims.currentAnim?.key !== char.walk) this.player.play(char.walk, true)
         } else {
@@ -832,6 +1370,7 @@ export default function Game({ weaponRef, characterRef, equipRef, onOpenStore })
         // Los ataques activos siguen al personaje (con su offset) mientras se animan.
         for (const sl of this.activeSlashes)
           sl.setPosition(this.player.x + (sl.offX || 0), this.player.y + (sl.offY || 0))
+        this.checkSlashHits()
 
         // El aura (relleno + aro de fuego) sigue al player.
         if (this.auraOn) {
@@ -841,6 +1380,7 @@ export default function Game({ weaponRef, characterRef, equipRef, onOpenStore })
 
         this.updateEquip()
         this.updateMobs()
+        this.updateCursor()
         this.reveal()
       }
 
