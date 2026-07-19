@@ -155,7 +155,7 @@ const MOB_HP_BAR_W = 24
 const MOB_HP_BAR_H = 1
 const MOB_HP_BAR_OFFSET_Y = -36
 
-export default function Game({ weaponRef, characterRef, equipRef, reducedVisionRef, mapThemeRef, combatRef, onOpenStore, onPickupItem, onAddGold }) {
+export default function Game({ weaponRef, characterRef, equipRef, reducedVisionRef, mapThemeRef, combatRef, worldDropRef, onOpenStore, onPickupItem, onAddGold }) {
   const containerRef = useRef(null)
   const gameRef = useRef(null)
 
@@ -510,6 +510,9 @@ export default function Game({ weaponRef, characterRef, equipRef, reducedVisionR
         // Controles.
         this.keys = this.input.keyboard.addKeys('W,A,S,D')
         this.input.keyboard.on('keydown-R', () => this.generate())
+
+        // Puente para que App pueda tirar items al suelo desde el inventario.
+        if (worldDropRef) worldDropRef.current = (item) => this.dropWorldItem(item)
 
         this.generate()
       }
@@ -983,6 +986,14 @@ export default function Game({ weaponRef, characterRef, equipRef, reducedVisionR
         if (n >= 4) return { color: '#5eead4', border: 0x5eead4 } // turquesa (4-5)
         if (n >= 1) return { color: '#60a5fa', border: 0x60a5fa } // azul (1-3)
         return { color: '#f8fafc', border: 0x94a3b8 } // blanco (0 stats)
+      }
+
+      // Tira al suelo un item que viene del inventario (App), cerca del jugador.
+      dropWorldItem(item) {
+        if (!item || !this.player) return
+        const ang = Phaser.Math.FloatBetween(0, Math.PI * 2)
+        const r = 24 + Phaser.Math.Between(0, 8)
+        this.dropItemBadge(item, this.player.x + Math.cos(ang) * r, this.player.y + Math.sin(ang) * r)
       }
 
       // Badge de un item (nombre), coloreado por rareza. Al recogerlo va al inventario.

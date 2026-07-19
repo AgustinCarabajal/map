@@ -41,12 +41,15 @@ export const EQUIP_SLOTS = [
   { id: 'amulet', type: 'amulet', accept: ['amulet'] },
   { id: 'wings', type: 'wings', accept: ['wings'] },
   { id: 'ring', type: 'ring', accept: ['ring'] },
-  { id: 'weapon1', type: 'main hand', accept: ['weapon', 'skill'] }, // arma o skill (define daño)
+  { id: 'weapon1', type: 'main hand', accept: ['weapon'] }, // arma o skill (define daño)
   { id: 'helmet', type: 'helmet', accept: ['helmet'] },
   { id: 'weapon2', type: 'off hand', accept: ['shield'] }, // escudo
   { id: 'gloves', type: 'gloves', accept: ['gloves'] },
   { id: 'armor', type: 'armor', accept: ['armor'] },
   { id: 'boots', type: 'boots', accept: ['boots'] },
+  { id: 'skill1', type: 'skill', accept: ['skill'] },
+  { id: 'skill2', type: 'skill', accept: ['skill'] },
+  { id: 'skill3', type: 'skill', accept: ['skill'] },
 ]
 
 export const BACKPACK_SIZE = 32

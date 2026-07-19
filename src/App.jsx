@@ -38,6 +38,13 @@ export default function App() {
   // Combate que lee Phaser: stats efectivas (base + equipo) y qué stat de daño
   // usar para atacar (según el tag del arma/skill de main hand).
   const combatRef = useRef({ stats: playerStats, damageType: 'physicalDamage' })
+  // Puente App -> Phaser para tirar un item al suelo (lo setea Game al crear la escena).
+  const worldDropRef = useRef(null)
+  // Item "agarrado" en el cursor: { item, source } o null. Se levanta con click
+  // en un slot y se suelta con otro click (en un slot o en el suelo).
+  const [grab, setGrab] = useState(null)
+  // Imagen que sigue al mouse mientras hay un item agarrado.
+  const grabImgRef = useRef(null)
 
   const selectCharacter = useCallback((key) => {
     setCharacter(key)
@@ -93,6 +100,31 @@ export default function App() {
     setSlots((prev) => autoMove(prev, from))
   }, [])
 
+  // Click en un slot: si no hay nada agarrado, levanta ese item (queda en el
+  // cursor); si ya hay algo agarrado, lo suelta en ese slot (o cancela si es el
+  // mismo). El item queda "en el aire" pero permanece en su slot origen hasta
+  // que se concreta el destino (así el swap/validación usa moveItem).
+  const onSlotClick = useCallback(
+    (slotId) => {
+      if (!grab) {
+        if (slots[slotId]) setGrab({ item: slots[slotId], source: slotId })
+        return
+      }
+      if (slotId !== grab.source) handleMove(slotId, grab.source)
+      setGrab(null)
+    },
+    [grab, slots, handleMove]
+  )
+
+  // Soltar el item agarrado en el SUELO: lo spawnea en el mundo (Phaser) y lo
+  // saca de su slot origen.
+  const dropToGround = useCallback(() => {
+    if (!grab) return
+    worldDropRef.current?.(grab.item)
+    setSlots((prev) => ({ ...prev, [grab.source]: null }))
+    setGrab(null)
+  }, [grab])
+
   // Resultado posible según la grilla (NO se muestra hasta combinar). matchRecipe
   // trabaja con ids -> mapeamos las instancias a su id.
   const craftResult = matchRecipe(CRAFT_SLOTS.map((id) => slots[id]?.id))
@@ -122,7 +154,7 @@ export default function App() {
     setStats(eff) // para que el panel de personaje muestre las stats con equipo
   }, [slots])
 
-  // Atajos: I = inventario, C = personaje, Escape = cerrar todo.
+  // Atajos: I = inventario, C = personaje, Escape = cerrar todo / cancelar grab.
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === 'i' || e.key === 'I') {
@@ -132,6 +164,7 @@ export default function App() {
         e.preventDefault()
         setCharOpen((v) => !v)
       } else if (e.key === 'Escape') {
+        setGrab(null) // suelta el item agarrado (vuelve a su slot)
         setInvOpen(false)
         setCharOpen(false)
         setStoreOpen(false)
@@ -140,6 +173,21 @@ export default function App() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+
+  // Mientras hay un item agarrado, la imagen sigue al cursor (via ref, sin
+  // re-render por cada movimiento del mouse).
+  useEffect(() => {
+    if (!grab) return
+    const onMove = (e) => {
+      const el = grabImgRef.current
+      if (el) {
+        el.style.left = `${e.clientX}px`
+        el.style.top = `${e.clientY}px`
+      }
+    }
+    window.addEventListener('mousemove', onMove)
+    return () => window.removeEventListener('mousemove', onMove)
+  }, [grab])
 
   return (
     <div className="app-shell">
@@ -153,11 +201,24 @@ export default function App() {
           reducedVisionRef={reducedVisionRef}
           mapThemeRef={mapThemeRef}
           combatRef={combatRef}
+          worldDropRef={worldDropRef}
           onOpenStore={openStore}
           onPickupItem={pickupItem}
           onAddGold={addGold}
         />
       </main>
+
+      {/* Con un item agarrado: capa que atrapa clicks fuera de los paneles ->
+          soltar en el suelo. Los paneles (z mayor) reciben el click primero. */}
+      {grab && <div className="grab-catcher" onClick={dropToGround} />}
+      {grab && (
+        <img
+          ref={grabImgRef}
+          className="grab-cursor"
+          src={`/items/${grab.item.id}.png`}
+          alt={grab.item.name}
+        />
+      )}
 
       {/* Menú de pruebas (abajo): agrupa la selección de personaje y los
           toggles de opciones de test. Extensible: agregá más secciones/toggles. */}
@@ -232,7 +293,9 @@ export default function App() {
         onClose={closeInv}
         slots={slots}
         onMove={handleMove}
-        onAutoMove={handleAutoMove}
+        onSlotClick={onSlotClick}
+        grabbedSource={grab?.source}
+        grabbedItem={grab?.item}
         gold={gold}
       />
       <CraftingModal

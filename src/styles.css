@@ -1,5 +1,6 @@
 :root {
-  font-family: 'Pixelify Sans', system-ui, sans-serif;
+  /* font-family: 'Pixelify Sans', system-ui, sans-serif; */
+  font-family: 'Inter', system-ui, sans-serif;
   color: #f7f7f7;
   background: #0f172a;
 }
@@ -11,7 +12,7 @@
 .inventory-panel h3,
 .character h3,
 .tt-name {
-  font-family: 'Press Start 2P', 'Pixelify Sans', monospace;
+  /* font-family: 'Press Start 2P', 'Pixelify Sans', monospace; */
   line-height: 1.5;
 }
 
@@ -264,14 +265,38 @@ body {
   background: rgba(127, 29, 29, 0.22);
 }
 
-/* Slot "levantado" con un click (esperando dónde soltar). */
+/* Slot cuyo item está agarrado en el cursor (se ve "vacío/atenuado"). */
 .slot.held {
   border-color: #38bdf8;
   background: rgba(56, 189, 248, 0.18);
   box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.35) inset;
 }
 .slot.held .inv-item {
-  opacity: 0.55;
+  opacity: 0.2;
+}
+
+/* Item agarrado siguiendo al cursor. */
+.grab-cursor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 60;
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.7));
+}
+
+/* Capa que captura el click "en el suelo" para soltar el item (debajo de los
+   paneles, encima del canvas del juego). */
+.grab-catcher {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  cursor: pointer;
 }
 
 .slot-label {

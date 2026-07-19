@@ -71,6 +71,6 @@ export const item_list = [
     id: 'book_str', type: 'book_str', name: 'Thunderwake',
     description: 'A manual of primal forces. Boosts attack power by 20% but decreases movement speed by 10%.',
     effects: ['Attack Power: +20%', 'Movement Speed: -10%'],
-    tag: 'physical'
+    tag: 'fire'
   },
 ]
