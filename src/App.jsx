@@ -5,7 +5,7 @@ import Character from './Character.jsx'
 import CraftingModal from './CraftingModal.jsx'
 import { buildInitialSlots, moveItem, autoMove, CRAFT_SLOTS, EQUIP_SLOTS } from './inventoryData.js'
 import { matchRecipe } from './recipes.js'
-import { makeItem, computeStats, attackDamageStat } from './modifiers.js'
+import { makeItem, computeStats, mainDamageStat, activeSkill } from './modifiers.js'
 import { playerStats } from './stats.js'
 
 export default function App() {
@@ -150,7 +150,13 @@ export default function App() {
     equipRef.current = { weapon1: slots.weapon1?.id, weapon2: slots.weapon2?.id }
     const equipped = EQUIP_SLOTS.map((s) => slots[s.id]).filter(Boolean)
     const eff = computeStats(playerStats, equipped)
-    combatRef.current = { stats: eff, damageType: attackDamageStat(slots.weapon1) }
+    // Daño principal (skill de proyectil equipada > arma) y, si hay skill de
+    // proyectil, su visual para que Phaser dispare esas bolas al atacar.
+    combatRef.current = {
+      stats: eff,
+      damageType: mainDamageStat(slots),
+      projectile: activeSkill(slots)?.projectile || null,
+    }
     setStats(eff) // para que el panel de personaje muestre las stats con equipo
   }, [slots])
 
@@ -192,7 +198,12 @@ export default function App() {
   return (
     <div className="app-shell">
       {/* Character panel (left). Always mounted, hides itself. */}
-      <Character open={charOpen} onClose={closeChar} stats={stats} />
+      <Character
+        open={charOpen}
+        onClose={closeChar}
+        stats={stats}
+        damageType={mainDamageStat(slots)}
+      />
       <main className="game-panel">
         <Game
           weaponRef={weaponRef}
@@ -303,6 +314,9 @@ export default function App() {
         onClose={closeStore}
         slots={slots}
         onMove={handleMove}
+        onSlotClick={onSlotClick}
+        grabbedSource={grab?.source}
+        grabbedItem={grab?.item}
         canCraft={!!craftResult}
         onCombine={handleCombine}
       />

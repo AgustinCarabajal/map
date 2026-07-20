@@ -8,10 +8,23 @@ function prettyKey(k) {
     .replace(/\b(Hp|Mp)\b/g, (m) => m.toUpperCase())
 }
 
-export default function Character({ open, onClose, stats = playerStats }) {
+// Categoría del daño que usa el player, según el stat de daño en uso (derivado
+// del tag del arma/skill de main hand): físico, sagrado, demoníaco o elemental
+// (fire/cold/lightning agrupados).
+const DAMAGE_CATEGORY = {
+  physicalDamage: 'Physical',
+  sacredDamage: 'Sacred',
+  demonicDamage: 'Demonic',
+  fireDamage: 'Elemental (Fire)',
+  coldDamage: 'Elemental (Cold)',
+  lightningDamage: 'Elemental (Lightning)',
+}
+
+export default function Character({ open, onClose, stats = playerStats, damageType = 'physicalDamage' }) {
   if (!open) return null
 
   const expPct = Math.min(100, Math.round((playerInfo.exp / playerInfo.expToNext) * 100))
+  const damageLabel = DAMAGE_CATEGORY[damageType] || 'Physical'
 
   return (
     <aside className="character">
@@ -35,6 +48,11 @@ export default function Character({ open, onClose, stats = playerStats }) {
         <div className="exp-text">
           {playerInfo.exp} / {playerInfo.expToNext} EXP
         </div>
+      </div>
+
+      <div className="char-damage-type">
+        <span className="stat-label">Damage Type</span>
+        <span className="stat-value">{damageLabel}</span>
       </div>
 
       <h3>Stats</h3>

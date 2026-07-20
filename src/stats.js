@@ -1,12 +1,21 @@
 // Info general del personaje (clase, nivel, experiencia).
 export const playerInfo = {
-  name: 'Soldier',
-  class: 'Warrior',
+  name: "Soldier",
+  class: "Warrior",
   level: 1,
   exp: 65,
   expToNext: 100,
-  inventoryItems: ['sword_01', 'sword_01', 'shield_10', 'jewel_01', 'bow'],
-}
+  inventoryItems: [
+    "sword_01",
+    "sword_01",
+    "shield_10",
+    "jewel_01",
+    "bow",
+    "skill_fireball",
+    "skill_shadowball",
+    "wand_00",
+  ],
+};
 
 export const playerStats = {
   hp: 100,
@@ -42,7 +51,7 @@ export const playerStats = {
   sacredDamage: 0,
   demonicDamage: 0,
 
-  attackSpeed: 1,
+  attackSpeed: 10,
 
   defense: 8,
   blockChance: 10,
@@ -62,8 +71,7 @@ export const playerStats = {
   damageReflection: 0,
 
   projectileCount: 1,
-
-}
+};
 
 // const weaponModifiers = {
 //   demonic: [
@@ -173,7 +181,7 @@ export const playerStats = {
 //       mid: [15, 30],
 //       high: [40, 50]
 //     },
-    
+
 //   ],
 // }
 
@@ -231,5 +239,5 @@ export const playerStats = {
 //  * charm        100   200   40   40
 //  * relic        100   250   40   40
 //  * TOTAL        1600  2500  500  500
-//  * 
+//  *
 //  */

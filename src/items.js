@@ -1,4 +1,4 @@
-import { SWORD_MODS, SHIELD_MODS } from './modifiers.js'
+import { SWORD_MODS, SHIELD_MODS, BOW_MODS } from "./modifiers.js";
 
 // Cada item tiene:
 //   - id:   identificador único (define ícono /items/<id>.png y animación de
@@ -11,27 +11,45 @@ import { SWORD_MODS, SHIELD_MODS } from './modifiers.js'
 //           rollea un valor -> así cada drop del mismo item sale distinto.
 export const item_list = [
   {
-    id: 'sword_10', type: 'sword', name: 'Crimson Verdict',
+    id: "wand_00",
+    type: "wand",
+    name: "Duelist Wand",
+    base: {
+      damage: 10,
+      attackSpeed: 2,
+      requiredLevel: 1,
+    },
+    mods: [...BOW_MODS],
+    tag: "fire",
+  },
+  {
+    id: "sword_10",
+    type: "sword",
+    name: "Crimson Verdict",
     base: {
       damage: 50,
       attackSpeed: 1.2,
       requiredLevel: 5,
     },
     mods: [...SWORD_MODS],
-    tag: 'physical'
+    tag: "fire",
   },
   {
-    id: 'sword_01', type: 'sword', name: 'Iron Sword',
+    id: "sword_01",
+    type: "sword",
+    name: "Iron Sword",
     base: {
       damage: 18,
       attackSpeed: 1.0,
       requiredLevel: 1,
     },
     mods: [...SWORD_MODS],
-    tag: 'physical'
+    tag: "physical",
   },
   {
-    id: 'shield_10', type: 'shield', name: 'Tower Shield',
+    id: "shield_10",
+    type: "shield",
+    name: "Tower Shield",
     base: {
       defense: 30,
       blockChance: 25,
@@ -40,37 +58,53 @@ export const item_list = [
     mods: [...SHIELD_MODS],
   },
   {
-    id: 'jewel_01', type: 'jewel', name: 'Void Shard',
+    id: "jewel_01",
+    type: "jewel",
+    name: "Void Shard",
     // Material de crafteo: no rollea mods.
     mods: [],
-    tag: 'misc'
+    tag: "misc",
   },
   {
-    id: 'bow', type: 'bow', name: 'Whisperwind',
+    id: "bow",
+    type: "bow",
+    name: "Whisperwind",
     base: {
       damage: 35,
       attackSpeed: 1.5,
       requiredLevel: 6,
     },
-    mods: [...SWORD_MODS],
-    tag: 'physical'
+    mods: [...BOW_MODS],
+    tag: "physical",
   },
+  // Skill de proyectil: al equiparla (slot skill) el ataque dispara bolas de
+  // fuego, define el daño principal como fuego (por su `tag`) y suma su
+  // base.damage (+10) al fireDamage (vía computeStats).
   {
-    id: 'book_int', type: 'book_int', name: 'Astral Fracture',
-    description: 'Cast a powerful spell that damages all enemies in a radius.',
-    effects: ['Damage: 150% of your magic power', 'Cooldown: 20s'],
-    tag: 'lightning'
+    id: "skill_fireball",
+    type: "book_str",
+    name: "Fireball",
+    description: "Lanza bolas de fuego hacia el cursor.",
+    effects: ["Damage: +10 fire (flat)", "Sets main damage to Fire"],
+    base: { damage: 10 },
+    mods: [],
+    tag: "fire",
+    // `projectile` marca la skill como ataque a distancia y describe su visual.
+    projectile: { color: 0xff7a1a },
+    canBeUsedBy: ["empty", "wand", "staff"],
   },
+  // Skill de proyectil demoníaco: dispara orbes de sombra violetas, define el
+  // daño principal como demonic y suma +10 al demonicDamage.
   {
-    id: 'book_dex', type: 'book_dex', name: 'Phantom Weave',
-    description: 'Grants the ability to teleport a short distance, evading attacks.',
-    effects: ['Teleport Range: 5 tiles', 'Cooldown: 15s'],
-    tag: 'demonic'
+    id: "skill_shadowball",
+    type: "book_int",
+    name: "Shadow Orb",
+    description: "Lanza orbes de sombra demoníaca hacia el cursor.",
+    effects: ["Damage: +10 demonic (flat)", "Sets main damage to Demonic"],
+    base: { damage: 10 },
+    mods: [],
+    tag: "demonic",
+    projectile: { color: 0xa855f7 },
+    canBeUsedBy: ["empty", "wand", "staff"],
   },
-  {
-    id: 'book_str', type: 'book_str', name: 'Thunderwake',
-    description: 'A manual of primal forces. Boosts attack power by 20% but decreases movement speed by 10%.',
-    effects: ['Attack Power: +20%', 'Movement Speed: -10%'],
-    tag: 'fire'
-  },
-]
+];

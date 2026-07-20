@@ -2,11 +2,12 @@ import { useState } from 'react'
 import { hydrate, CRAFT_SLOTS, CRAFT_OUT } from './inventoryData.js'
 import ItemTooltip from './ItemTooltip.jsx'
 
-function Slot({ slotId, item, big, overId, onDropItem, setOver, clearOver, onTake, onHover, onHoverEnd }) {
+function Slot({ slotId, item, big, overId, held, onDropItem, onSlotClick, setOver, clearOver, onTake, onHover, onHoverEnd }) {
   const cls = [
     'slot',
     big ? 'craft-out' : 'bp',
     overId === slotId ? 'over' : '',
+    held ? 'held' : '',
   ]
     .filter(Boolean)
     .join(' ')
@@ -14,6 +15,7 @@ function Slot({ slotId, item, big, overId, onDropItem, setOver, clearOver, onTak
   return (
     <div
       className={cls}
+      onClick={() => onSlotClick?.(slotId)}
       onDragOver={(e) => {
         e.preventDefault()
         setOver(slotId)
@@ -47,7 +49,7 @@ function Slot({ slotId, item, big, overId, onDropItem, setOver, clearOver, onTak
   )
 }
 
-export default function CraftingModal({ open, onClose, slots, onMove, canCraft, onCombine }) {
+export default function CraftingModal({ open, onClose, slots, onMove, onSlotClick, grabbedSource, canCraft, onCombine }) {
   const [overId, setOverId] = useState(null)
   const [tip, setTip] = useState(null) // { item, x, y } para el tooltip
   const setOver = (id) => setOverId(id)
@@ -58,7 +60,7 @@ export default function CraftingModal({ open, onClose, slots, onMove, canCraft, 
   if (!open) return null
 
   const resolve = (id) => hydrate(slots[id])
-  const slotProps = { overId, onDropItem: onMove, setOver, clearOver, onHover: showTip, onHoverEnd: hideTip }
+  const slotProps = { overId, onDropItem: onMove, onSlotClick, setOver, clearOver, onHover: showTip, onHoverEnd: hideTip }
 
   return (
     <div className="crafting-modal">
@@ -72,7 +74,7 @@ export default function CraftingModal({ open, onClose, slots, onMove, canCraft, 
       <div className="crafting-area">
         <div className="craft-grid">
           {CRAFT_SLOTS.map((id) => (
-            <Slot key={id} slotId={id} item={resolve(id)} {...slotProps} />
+            <Slot key={id} slotId={id} item={resolve(id)} held={grabbedSource === id} {...slotProps} />
           ))}
         </div>
         <div className="craft-arrow">→</div>
@@ -84,7 +86,7 @@ export default function CraftingModal({ open, onClose, slots, onMove, canCraft, 
         Combinar
       </button>
 
-      <p className="inventory-hint">Arrastrá items desde el inventario (I)</p>
+      <p className="inventory-hint">Arrastrá o clickeá items desde el inventario (I)</p>
 
       {tip && <ItemTooltip item={tip.item} x={tip.x} y={tip.y} />}
     </div>
