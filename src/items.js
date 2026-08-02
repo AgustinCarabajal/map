@@ -14,6 +14,7 @@ export const item_list = [
     id: "wand_00",
     type: "wand",
     name: "Duelist Wand",
+    version: "neon",
     base: {
       damage: 10,
       attackSpeed: 2,
@@ -55,6 +56,7 @@ export const item_list = [
       blockChance: 25,
       requiredLevel: 2,
     },
+    version: "shiny",
     mods: [...SHIELD_MODS],
   },
   {

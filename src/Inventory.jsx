@@ -37,6 +37,7 @@ function Slot({
     .filter(Boolean)
     .join(' ')
 
+
   return (
     <div
       className={cls}
@@ -53,7 +54,57 @@ function Slot({
         onDropItem(slotId, e.dataTransfer.getData('text/plain'))
       }}
     >
-      {item ? (
+      {item ? item.version === 'neon' ? (
+        <div className="neon-container">
+          <img
+            className="inv-item neon-icon"
+            src={item.img}
+            alt={item.name}
+            title={item.name}
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData('text/plain', slotId)
+              e.dataTransfer.effectAllowed = 'move'
+              onDragStart.setDrag(item.kind)
+              onHoverEnd()
+            }}
+            onDragEnd={() => onDragStart.clearDrag()}
+            onMouseEnter={(e) => onHover(item, e)}
+            onMouseMove={(e) => onHover(item, e)}
+            onMouseLeave={onHoverEnd}
+          />
+        </div>
+      ) :
+      
+      item.version === 'shiny' ? (
+        <div className="shine-container">
+          <div 
+            className="sword-shine-wrapper"
+            style={{ '--icon-url': `url(${item.img})` }}
+          >
+            <img className="sword-icon" 
+              src={item.img}
+              alt={item.name}
+              title={item.name}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData('text/plain', slotId)
+                e.dataTransfer.effectAllowed = 'move'
+                onDragStart.setDrag(item.kind)
+                onHoverEnd()
+              }}
+              onDragEnd={() => onDragStart.clearDrag()}
+              onMouseEnter={(e) => onHover(item, e)}
+              onMouseMove={(e) => onHover(item, e)}
+              onMouseLeave={onHoverEnd}
+            />
+            
+            {/* Capa única de brillo diagonal */}
+            <div className="shine-layer" />
+          </div>
+        </div>
+      ) :
+      (
         <img
           className="inv-item"
           src={item.img}

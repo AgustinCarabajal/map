@@ -639,3 +639,127 @@ body {
 .phaser-container canvas {
   display: block;
 }
+
+/* NEON */
+
+CSS
+.neon-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 2rem;
+  background-color: #0d0d11;
+}
+
+/* Estilos de la imagen PNG */
+.neon-icon {
+  animation: neonGlow 4s linear infinite;
+  width: 100%;
+}
+
+/* Animación Neón con cambio de color */
+@keyframes neonGlow {
+  0% {
+    filter: 
+      drop-shadow(0 0 1px #ff0055)
+      drop-shadow(0 0 5px #ff0055)
+      drop-shadow(0 0 10px #ff0055);
+  }
+  33% {
+    filter: 
+      drop-shadow(0 0 1px #00e5ff)
+      drop-shadow(0 0 5px #00e5ff)
+      drop-shadow(0 0 10px #00e5ff);
+  }
+  66% {
+    filter: 
+      drop-shadow(0 0 1px #7600ff)
+      drop-shadow(0 0 5px #7600ff)
+      drop-shadow(0 0 10px #7600ff);
+  }
+  100% {
+    filter: 
+      drop-shadow(0 0 1px #ff0055)
+      drop-shadow(0 0 5px #ff0055)
+      drop-shadow(0 0 10px #ff0055);
+  }
+}
+
+/* NEON */
+
+/* BRILLO */
+
+.shine-container {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0;
+  margin: 0;
+  cursor: grab;
+}
+
+/* 1. Imagen base con BORDE BRILANTE SIEMPRE */
+.sword-icon {
+  width: 100%;
+  height: auto;
+  display: block;
+  
+  /* Borde neón/luminoso que respeta el canal alfa del PNG */
+  filter: 
+    drop-shadow(0 0 0px #00ffff) 
+    drop-shadow(0 0 1px rgba(0, 255, 255, 0.6));
+}
+
+.sword-shine-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+/* 2. Capa única para el destello */
+.shine-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  
+  /* Máscara que recorta el destello a la silueta del PNG */
+  -webkit-mask-image: var(--icon-url);
+  mask-image: var(--icon-url);
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  
+  pointer-events: none;
+
+  /* Degradado diagonal único */
+  background: linear-gradient(
+    45deg, 
+    transparent 0%, 
+    transparent 40%, 
+    rgba(255, 255, 255, 0.9) 50%, 
+    transparent 60%, 
+    transparent 100%
+  );
+  background-size: 250% 250%;
+  
+  /* Animación continua en una sola dirección diagonal (3.5s es velocidad media-lenta) */
+  animation: shineSingleDirection 3.5s ease-in-out infinite;
+}
+
+/* 3. Animación fluida en una sola dirección */
+@keyframes shineSingleDirection {
+  0% {
+    background-position: -180% 180%;
+  }
+  70% {
+    background-position: 180% -180%;
+  }
+  /* Pausa suave antes de reiniciar el ciclo */
+  100% {
+    background-position: 180% -180%;
+  }
+}
+
+/* BRILLO */

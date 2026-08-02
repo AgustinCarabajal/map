@@ -258,6 +258,7 @@ export function makeItem(itemId) {
     tag: tpl.tag,
     base: tpl.base ? { ...tpl.base } : undefined,
     projectile: tpl.projectile,
+    version: tpl.version,
     mods: [],
   };
 }

@@ -19,7 +19,7 @@ export const MOBS = {
       cold: 10,
       lightning: 10,
       sacred: 0,
-      demonic: 50,
+      demonic: 100,
     },
     aggroRange: 120,
     gold: { min: 3, max: 12 }, // oro que suelta al morir (rango aleatorio)
