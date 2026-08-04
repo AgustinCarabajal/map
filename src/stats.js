@@ -52,12 +52,12 @@ export const playerStats = {
   sacredDamage: 0,
   demonicDamage: 0,
 
-  attackSpeed: 200,
+  attackSpeed: 10,
 
   defense: 8,
   blockChance: 10,
 
-  movementSpeed: 100,
+  movementSpeed: 10,
 
   critChance: 5,
   critDamage: 150,
@@ -72,7 +72,7 @@ export const playerStats = {
   damageReflection: 0,
 
   projectileCount: 1,
-  pierceCount: 2,
+  pierceCount: 0,
 };
 
 // const weaponModifiers = {
