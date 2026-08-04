@@ -612,6 +612,7 @@ export default function Game({
                 combatRef?.current?.projectile,
                 spawnX,
                 spawnY,
+                true,
               );
             }
           }
@@ -1641,12 +1642,21 @@ export default function Game({
       //   });
       // }
 
-      fireArrow(angle, speed, proj = null, x = null, y = null) {
+      fireArrow(
+        angle,
+        speed,
+        proj = null,
+        x = null,
+        y = null,
+        pierced = false,
+      ) {
         const arrow = this.projectiles.create(
           x ? x : this.player.x,
           y ? y : this.player.y,
           "arrow",
         );
+
+        arrow.hasPierced = pierced;
 
         let emitter = null;
 
