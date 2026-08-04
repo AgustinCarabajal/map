@@ -71,8 +71,8 @@ export const playerStats = {
   damageReduction: 0,
   damageReflection: 0,
 
-  projectileCount: 1,
-  pierceCount: 1,
+  projectileCount: 2,
+  pierceCount: 3,
 };
 
 // const weaponModifiers = {

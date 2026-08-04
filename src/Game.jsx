@@ -606,14 +606,37 @@ export default function Game({
               const spawnX = mob.x + Math.cos(randomAngle) * spawnDistance;
               const spawnY = mob.y + Math.sin(randomAngle) * spawnDistance;
 
-              this.fireArrow(
-                randomAngle,
-                this.stat("attackSpeed"),
-                combatRef?.current?.projectile,
-                spawnX,
-                spawnY,
-                true,
-              );
+              const weaponType = ITEM_TYPE[weaponRef?.current];
+
+              const proj = combatRef?.current?.projectile;
+              const atkSpeed = this.stat("attackSpeed");
+              if (proj && (weaponType === "wand" || !weaponType)) {
+                this.fireBall(
+                  randomAngle,
+                  proj,
+                  atkSpeed,
+                  spawnX,
+                  spawnY,
+                  true,
+                );
+              } else if (weaponType === "wand") {
+                this.basicBall(
+                  randomAngle,
+                  proj,
+                  atkSpeed,
+                  spawnX,
+                  spawnY,
+                  true,
+                );
+              } else
+                this.fireArrow(
+                  randomAngle,
+                  proj,
+                  atkSpeed,
+                  spawnX,
+                  spawnY,
+                  true,
+                );
             }
           }
 
@@ -1644,8 +1667,8 @@ export default function Game({
 
       fireArrow(
         angle,
-        speed,
         proj = null,
+        speed,
         x = null,
         y = null,
         pierced = false,
@@ -1727,50 +1750,82 @@ export default function Game({
       }
 
       // Dispara projectileCount bolas de skill en abanico (igual que shootArrow).
-      shootNormalBall(baseAngle, proj) {
+      shootNormalBall(
+        baseAngle,
+        proj = null,
+        speed,
+        x = null,
+        y = null,
+        pierced = false,
+      ) {
         const count = Math.max(1, this.stat("projectileCount") || 1);
         const spread = Phaser.Math.DegToRad(PROJECTILE_SPREAD_DEG);
         const start = baseAngle - (spread * (count - 1)) / 2;
         for (let i = 0; i < count; i++)
-          this.basicBall(start + i * spread, proj);
+          this.basicBall(start + i * spread, proj, speed, x, y, pierced);
       }
 
       // Dispara projectileCount bolas de skill en abanico (igual que shootArrow).
-      shootBalls(baseAngle, proj) {
+      shootBalls(
+        baseAngle,
+        proj = null,
+        speed,
+        x = null,
+        y = null,
+        pierced = false,
+      ) {
         const count = Math.max(1, this.stat("projectileCount") || 1);
         const spread = Phaser.Math.DegToRad(PROJECTILE_SPREAD_DEG);
         const start = baseAngle - (spread * (count - 1)) / 2;
-        for (let i = 0; i < count; i++) this.fireBall(start + i * spread, proj);
+        for (let i = 0; i < count; i++)
+          this.fireBall(start + i * spread, proj, speed, x, y, pierced);
       }
 
-      basicBall(angle, proj) {
+      basicBall(
+        angle,
+        proj = null,
+        speed,
+        x = null,
+        y = null,
+        pierced = false,
+      ) {
         const ball = this.projectiles.create(
-          this.player.x,
-          this.player.y,
+          x ? x : this.player.x,
+          y ? y : this.player.y,
           "normalBall",
         );
+        ball.hasPierced = pierced;
         ball.setDepth(11);
         ball.setTint(proj?.color ?? 0xffffff);
         ball.setBlendMode(Phaser.BlendModes.ADD); // brillo tipo glow
         ball.body.setCircle(6, 2, 2);
-        this.physics.velocityFromRotation(angle, 360, ball.body.velocity);
+        this.physics.velocityFromRotation(
+          angle,
+          500 + (500 * speed) / 100,
+          ball.body.velocity,
+        );
         this.time.delayedCall(2000, () => ball.active && ball.destroy());
       }
 
       // Crea una bola de skill (fuego/sombra/...) teñida con el color de la skill.
       // Reusa el grupo de proyectiles, así hereda el daño al mob y la destrucción
       // contra las paredes. El daño usa el elemento del ataque (attackElement()).
-      fireBall(angle, proj) {
+      fireBall(angle, proj = null, speed, x = null, y = null, pierced = false) {
         const ball = this.projectiles.create(
-          this.player.x,
-          this.player.y,
+          x ? x : this.player.x,
+          y ? y : this.player.y,
           "ball",
         );
+        ball.hasPierced = pierced;
         ball.setDepth(11);
         ball.setTint(proj?.color ?? 0xffffff);
         ball.setBlendMode(Phaser.BlendModes.ADD); // brillo tipo glow
         ball.body.setCircle(6, 2, 2);
-        this.physics.velocityFromRotation(angle, 360, ball.body.velocity);
+        this.physics.velocityFromRotation(
+          angle,
+          500 + (500 * speed) / 100,
+          ball.body.velocity,
+        );
         this.time.delayedCall(2000, () => ball.active && ball.destroy());
       }
 
@@ -1790,18 +1845,17 @@ export default function Game({
         );
 
         const weaponType = ITEM_TYPE[weaponRef?.current];
-        console.log("ref", equipRef, equipRef?.current);
 
         // Con una skill de proyectil equipada, el ataque dispara sus bolas
         // (fuego/sombra/...) en vez del golpe cuerpo a cuerpo o la flecha.
         const proj = combatRef?.current?.projectile;
         if (proj && (weaponType === "wand" || !weaponType)) {
-          this.shootBalls(angle, proj);
+          this.shootBalls(angle, proj, this.stat("attackSpeed"));
           return;
         }
 
         if (weaponType === "wand") {
-          this.shootNormalBall(angle, proj);
+          this.shootNormalBall(angle, proj, this.stat("attackSpeed"));
           return;
         }
 
