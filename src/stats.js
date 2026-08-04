@@ -14,6 +14,7 @@ export const playerInfo = {
     "skill_fireball",
     "skill_shadowball",
     "wand_00",
+    "skill_lightningArrow",
   ],
 };
 
@@ -51,12 +52,12 @@ export const playerStats = {
   sacredDamage: 0,
   demonicDamage: 0,
 
-  attackSpeed: 10,
+  attackSpeed: 200,
 
   defense: 8,
   blockChance: 10,
 
-  movementSpeed: 10,
+  movementSpeed: 100,
 
   critChance: 5,
   critDamage: 150,
@@ -71,6 +72,7 @@ export const playerStats = {
   damageReflection: 0,
 
   projectileCount: 1,
+  pierceCount: 2,
 };
 
 // const weaponModifiers = {

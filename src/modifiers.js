@@ -78,6 +78,12 @@ export const MODIFIERS = {
     label: "+# to number of projectiles",
     tiers: { low: [1, 1], mid: [2, 3], high: [4, 5] },
   },
+  flat_pierce: {
+    stat: "pierceCount",
+    mode: "flat",
+    label: "Projectiles can pierce # times",
+    tiers: { low: [1, 1], mid: [2, 3], high: [4, 5] },
+  },
 
   // --- Defensivos (escudos / equipo) ---
   flat_def: {
@@ -155,6 +161,7 @@ export const BOW_MODS = [
   "inc_crit",
   "inc_critdmg",
   "flat_proj",
+  "flat_pierce",
 ];
 export const SHIELD_MODS = ["flat_def", "inc_block", "inc_dmgred"];
 export const EQUIPMENT_MODS = [
@@ -319,7 +326,8 @@ export function attackDamageStat(mainHandItem) {
 // `projectile`. Define el ataque a distancia y el daño principal.
 export function activeSkill(slots) {
   return (
-    [slots.skill1, slots.skill2, slots.skill3].find((s) => s?.projectile) || null
+    [slots.skill1, slots.skill2, slots.skill3].find((s) => s?.projectile) ||
+    null
   );
 }
 

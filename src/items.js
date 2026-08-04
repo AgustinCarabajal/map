@@ -17,7 +17,6 @@ export const item_list = [
     version: "neon",
     base: {
       damage: 10,
-      attackSpeed: 2,
       requiredLevel: 1,
     },
     mods: [...BOW_MODS],
@@ -29,7 +28,6 @@ export const item_list = [
     name: "Crimson Verdict",
     base: {
       damage: 50,
-      attackSpeed: 1.2,
       requiredLevel: 5,
     },
     mods: [...SWORD_MODS],
@@ -41,7 +39,6 @@ export const item_list = [
     name: "Iron Sword",
     base: {
       damage: 18,
-      attackSpeed: 1.0,
       requiredLevel: 1,
     },
     mods: [...SWORD_MODS],
@@ -73,7 +70,6 @@ export const item_list = [
     name: "Whisperwind",
     base: {
       damage: 35,
-      attackSpeed: 1.5,
       requiredLevel: 6,
     },
     mods: [...BOW_MODS],
@@ -108,5 +104,31 @@ export const item_list = [
     tag: "demonic",
     projectile: { color: 0xa855f7 },
     canBeUsedBy: ["empty", "wand", "staff"],
+  },
+  // Fire arrow
+  {
+    id: "skill_fireArrow",
+    type: "book_dex",
+    name: "Fire Arrow",
+    description: "Lanza orbes de sombra demoníaca hacia el cursor.",
+    effects: ["Damage: +10 demonic (flat)", "Sets main damage to Demonic"],
+    base: { damage: 30 },
+    mods: [],
+    tag: "fire",
+    projectile: { color: 0xff7a1a },
+    canBeUsedBy: ["bow"],
+  },
+  // Lightning arrow
+  {
+    id: "skill_lightningArrow",
+    type: "book_dex",
+    name: "Lightning Arrow",
+    description: "Lanza orbes de sombra demoníaca hacia el cursor.",
+    effects: ["Damage: +10 demonic (flat)", "Sets main damage to Demonic"],
+    base: { damage: 25 },
+    mods: [],
+    tag: "lightning",
+    projectile: { color: 0x7a7aff },
+    canBeUsedBy: ["bow"],
   },
 ];

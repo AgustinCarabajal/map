@@ -577,7 +577,47 @@ export default function Game({
         // consume en el impacto.
         this.physics.add.overlap(this.projectiles, this.mobs, (arrow, mob) => {
           if (!arrow.active || !mob.active) return;
+          if (arrow.isDestroying) return;
+
+          // 1. Aplicar daño (esto podría destruir al mob si muere)
           this.damageMob(mob, this.attackDamage());
+
+          const pierceCount = this.stat("pierceCount");
+
+          // 2. Verificar que el mob SIGA vivo y tenga 'body' antes de acceder a sus propiedades
+          if (
+            mob.active &&
+            mob.body &&
+            pierceCount &&
+            pierceCount > 0 &&
+            !arrow.hasPierced
+          ) {
+            arrow.hasPierced = true;
+
+            // Calcular el radio de forma segura (con un valor por defecto si falla algo)
+            const mobRadius =
+              Math.max(mob.body.width || 0, mob.body.height || 0) / 2;
+            const spawnMargin = 12;
+            const spawnDistance = mobRadius + spawnMargin;
+
+            for (let i = 0; i < pierceCount; i++) {
+              const randomAngle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+
+              const spawnX = mob.x + Math.cos(randomAngle) * spawnDistance;
+              const spawnY = mob.y + Math.sin(randomAngle) * spawnDistance;
+
+              this.fireArrow(
+                randomAngle,
+                this.stat("attackSpeed"),
+                combatRef?.current?.projectile,
+                spawnX,
+                spawnY,
+              );
+            }
+          }
+
+          // 3. Destruir la flecha original
+          arrow.isDestroying = true;
           arrow.destroy();
         });
 
@@ -1447,27 +1487,233 @@ export default function Game({
         this.player.play(c.idle);
       }
 
-      // Dispara projectileCount flechas: la principal al ángulo dado y las
-      // extra en abanico simétrico (pequeño ángulo entre cada una).
-      shootArrow(baseAngle) {
+      // SHOOT VOLLEY ARROWS
+      // Crea varias flechas en la direccion del ángulo dado.
+      shootVolleyArrow(baseAngle) {
         const count = Math.max(1, this.stat("projectileCount") || 1);
-        const spread = Phaser.Math.DegToRad(PROJECTILE_SPREAD_DEG);
+        const spread = Phaser.Math.DegToRad(0);
         const start = baseAngle - (spread * (count - 1)) / 2;
-        for (let i = 0; i < count; i++) this.fireArrow(start + i * spread);
+
+        const spacing = 15; // Distancia en píxeles entre cada flecha
+        const perpAngle = start + Math.PI / 2; // Dirección perpendicular a la trayectoria
+
+        for (let i = 0; i < count; i++) {
+          const magnitude = Math.ceil(i / 2) * spacing;
+          const sign = i % 2 === 0 ? -1 : 1; // Puedes cambiar a (i % 2 === 0 ? 1 : -1) si prefieres arrancar por la izquierda
+          const offset = i === 0 ? 0 : magnitude * sign;
+
+          const posX = this.player.x + Math.cos(perpAngle) * offset;
+          const posY = this.player.y + Math.sin(perpAngle) * offset;
+
+          const arrow = this.projectiles.create(posX, posY, "arrow");
+          arrow.setDepth(11).setRotation(start);
+          arrow.body.setSize(14, 2, true);
+
+          this.physics.velocityFromRotation(
+            start,
+            500 + (500 * this.stat("attackSpeed")) / 100,
+            arrow.body.velocity,
+          );
+
+          // Se autodestruye a los 2s si no chocó nada.
+          this.time.delayedCall(2000, () => arrow.active && arrow.destroy());
+        }
       }
 
-      // Crea una sola flecha hacia el ángulo dado.
-      fireArrow(angle) {
-        const arrow = this.projectiles.create(
+      // Dispara projectileCount flechas: la principal al ángulo dado y las
+      // extra en abanico simétrico (pequeño ángulo entre cada una).
+      // shootArrow(baseAngle) {
+      //   const count = Math.max(1, this.stat("projectileCount") || 1);
+      //   const spread = Phaser.Math.DegToRad(PROJECTILE_SPREAD_DEG);
+      //   const start = baseAngle - (spread * (count - 1)) / 2;
+
+      //   for (let i = 0; i < count; i++)
+      //     this.fireArrow(start + i * spread, this.stat("attackSpeed"));
+      // }
+      shootArrow(baseAngle, proj = null) {
+        const count = Math.max(1, this.stat("projectileCount") || 1);
+        const pointer = this.input.activePointer;
+        const cursor = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+
+        // 1. Distancia y ángulo directos hacia el cursor
+        const distance = Phaser.Math.Distance.Between(
           this.player.x,
           this.player.y,
+          cursor.x,
+          cursor.y,
+        );
+        const cursorAngle = Phaser.Math.Angle.Between(
+          this.player.x,
+          this.player.y,
+          cursor.x,
+          cursor.y,
+        );
+
+        // 2. Rangos de distancia (en píxeles)
+        const minDistance = 50; // Muy cerca del personaje
+        const maxDistance = 400; // Lejos del personaje
+
+        // 3. Apertura TOTAL del abanico (en radianes)
+        // Cerca = 120° de apertura total | Lejos = 10° de apertura total
+        const maxSpread = Phaser.Math.DegToRad(120);
+        const minSpread = Phaser.Math.DegToRad(10);
+
+        // 4. Interpolar el spread según la distancia
+        const factor = Phaser.Math.Percent(distance, minDistance, maxDistance); // Devuelve 0.0 a 1.0
+        const currentSpread = Phaser.Math.Linear(maxSpread, minSpread, factor);
+
+        // 5. Calcular el ángulo inicial para centrar el abanico en el cursor
+        // Si solo hay 1 proyectil, el paso (step) es 0 y va directo al cursor.
+        const step = count > 1 ? currentSpread / (count - 1) : 0;
+        const startAngle = cursorAngle - currentSpread / 2;
+
+        // 6. Disparar los proyectiles en abanico
+        for (let i = 0; i < count; i++) {
+          const angle = count === 1 ? cursorAngle : startAngle + i * step;
+          this.fireArrow(angle, this.stat("attackSpeed"), proj);
+        }
+      }
+
+      // FIRE NORMAL AND EFFECT ARROW
+      // fireArrow(angle, speed, proj = null) {
+      //   const arrow = this.projectiles.create(
+      //     this.player.x,
+      //     this.player.y,
+      //     "arrow",
+      //   );
+
+      //   let emitter = null;
+
+      //   if (proj) {
+      //     const color = proj?.color ?? 0xffffff;
+
+      //     arrow.setTint(color);
+      //     arrow.setBlendMode(Phaser.BlendModes.ADD);
+      //     arrow.body.setSize(24, 12, true);
+      //     arrow.setDepth(21).setRotation(angle);
+
+      //     // 1. Crear el emisor de partículas para la estela
+      //     emitter = this.add.particles(0, 0, "arrow", {
+      //       speed: { min: 10, max: 30 },
+      //       scale: { start: 0.4, end: 0 },
+      //       alpha: { start: 0.6, end: 0 },
+      //       tint: color,
+      //       blendMode: Phaser.BlendModes.ADD,
+      //       lifespan: 300, // Duración de cada partícula en ms
+      //       frequency: 30, // Intervalo entre partículas en ms
+      //       angle: { min: 0, max: 360 },
+      //     });
+
+      //     // 2. Hacer que el emisor siga a la flecha
+      //     emitter.startFollow(arrow);
+      //     emitter.setDepth(20); // Justo por debajo de la flecha
+      //   } else {
+      //     arrow.body.setSize(14, 2, true);
+      //     arrow.setDepth(11).setRotation(angle);
+      //   }
+
+      //   this.physics.velocityFromRotation(
+      //     angle,
+      //     500 + (500 * speed) / 100,
+      //     arrow.body.velocity,
+      //   );
+
+      //   // 3. Limpiar la flecha y el emisor cuando se destruya
+      //   const destroyArrow = () => {
+      //     if (!arrow.active) return;
+      //     if (emitter) {
+      //       emitter.stop(); // Deja de emitir
+      //       // Espera a que desaparezcan las partículas activas antes de destruir el emisor
+      //       this.time.delayedCall(300, () => emitter.destroy());
+      //     }
+      //     arrow.destroy();
+      //   };
+
+      //   // Se autodestruye a los 2s si no chocó nada
+      //   this.time.delayedCall(2000, destroyArrow);
+
+      //   // Opcional: Escuchar el evento de destrucción por si colisiona antes de los 2s
+      //   arrow.once(Phaser.GameObjects.Events.DESTROY, () => {
+      //     if (emitter && emitter.active) {
+      //       emitter.stop();
+      //       this.time.delayedCall(300, () => emitter.destroy());
+      //     }
+      //   });
+      // }
+
+      fireArrow(angle, speed, proj = null, x = null, y = null) {
+        const arrow = this.projectiles.create(
+          x ? x : this.player.x,
+          y ? y : this.player.y,
           "arrow",
         );
-        arrow.setDepth(11).setRotation(angle);
-        arrow.body.setSize(14, 2, true);
-        this.physics.velocityFromRotation(angle, 480, arrow.body.velocity);
-        // Se autodestruye a los 2s si no chocó nada.
-        this.time.delayedCall(2000, () => arrow.active && arrow.destroy());
+
+        let emitter = null;
+
+        if (proj) {
+          const color = proj?.color ?? 0xffffff;
+
+          arrow.setTint(color);
+          arrow.setBlendMode(Phaser.BlendModes.ADD);
+          arrow.body.setSize(14, 2, true);
+          arrow.setDepth(21).setRotation(angle);
+
+          // Distancia desde el centro del sprite hacia la punta
+          const tipOffset = 8;
+          const offsetX = Math.cos(angle) * tipOffset;
+          const offsetY = Math.sin(angle) * tipOffset;
+
+          // Convertir el ángulo de la flecha a grados para el cono de emisión
+          const degrees = Phaser.Math.RadToDeg(angle);
+          const oppositeAngle = degrees + 180; // La onda sale hacia atrás desde la punta
+
+          emitter = this.add.particles(0, 0, "arrow", {
+            speed: { min: 40, max: 120 }, // Salen despedidas hacia atrás
+            scale: { start: 0.4, end: 0 }, // Nacen grandes en la punta y se encogen
+            alpha: { start: 0.9, end: 0 },
+            tint: [color, 0xffffff], // Mezcla el color con destellos blancos
+            blendMode: Phaser.BlendModes.ADD,
+            lifespan: 200, // Vida corta para que la onda permanezca pegada a la punta
+            frequency: 15, // Alta frecuencia para dar densidad al nucleo del cometa
+
+            // Cono de expulsión en forma de onda (30 grados de apertura)
+            angle: { min: oppositeAngle - 15, max: oppositeAngle + 15 },
+
+            // Rotación aleatoria de cada partícula para que no sea rígido
+            rotate: { min: 0, max: 360 },
+          });
+
+          // Fijar el emisor a la punta de la flecha
+          emitter.startFollow(arrow, offsetX, offsetY);
+          emitter.setDepth(22); // Por encima de la flecha para cubrir la punta
+        } else {
+          arrow.body.setSize(14, 2, true);
+          arrow.setDepth(11).setRotation(angle);
+        }
+
+        this.physics.velocityFromRotation(
+          angle,
+          500 + (500 * speed) / 100,
+          arrow.body.velocity,
+        );
+
+        const destroyArrow = () => {
+          if (!arrow.active) return;
+          if (emitter) {
+            emitter.stop();
+            this.time.delayedCall(200, () => emitter.destroy());
+          }
+          arrow.destroy();
+        };
+
+        this.time.delayedCall(2000, destroyArrow);
+
+        arrow.once(Phaser.GameObjects.Events.DESTROY, () => {
+          if (emitter && emitter.active) {
+            emitter.stop();
+            this.time.delayedCall(200, () => emitter.destroy());
+          }
+        });
       }
 
       // Dispara projectileCount bolas de skill en abanico (igual que shootArrow).
@@ -1534,6 +1780,7 @@ export default function Game({
         );
 
         const weaponType = ITEM_TYPE[weaponRef?.current];
+        console.log("ref", equipRef, equipRef?.current);
 
         // Con una skill de proyectil equipada, el ataque dispara sus bolas
         // (fuego/sombra/...) en vez del golpe cuerpo a cuerpo o la flecha.
@@ -1550,7 +1797,19 @@ export default function Game({
 
         // Con un arco equipado en la main hand, dispara una flecha.
         if (weaponType === "bow") {
-          this.shootArrow(angle);
+          // this.shootArrow(angle)
+          const skill = combatRef?.current?.skill;
+          if (skill) {
+            switch (skill.id) {
+              case "skill_fireArrow":
+              case "skill_lightningArrow":
+                this.shootArrow(angle, proj);
+                break;
+              default:
+                this.shootArrow(angle);
+                break;
+            }
+          } else this.shootVolleyArrow(angle);
           return;
         }
 
