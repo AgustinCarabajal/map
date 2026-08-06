@@ -163,8 +163,17 @@ export const BOW_MODS = [
   "flat_proj",
   "flat_pierce",
 ];
-export const SHIELD_MODS = ["flat_def", "inc_block", "inc_dmgred"];
 export const EQUIPMENT_MODS = [
+  "flat_hp",
+  "flat_mp",
+  "flat_sacredShield",
+  "flat_demonicShield",
+  "inc_ms",
+];
+export const SHIELD_MODS = [
+  "flat_def",
+  "inc_block",
+  "inc_dmgred",
   "flat_hp",
   "flat_mp",
   "flat_sacredShield",

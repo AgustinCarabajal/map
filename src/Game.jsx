@@ -1373,8 +1373,15 @@ export default function Game({
       // Daño de un golpe: la stat de daño según el arma/skill equipada (su tag).
       // Ej: book_dex con tag 'demonic' -> usa demonicDamage.
       attackDamage() {
+        // Calculate if crit
+        const isCrit = Math.random() < this.stat("critChance") / 100;
+
         const type = combatRef?.current?.damageType || "physicalDamage";
-        return this.stat(type);
+        const dmg = this.stat(type);
+        return {
+          dmg: isCrit ? dmg + (dmg * this.stat("critDamage")) / 100 : dmg,
+          isCrit,
+        };
       }
 
       // Elemento del ataque actual, derivado del stat de daño en uso quitando el
@@ -1397,17 +1404,31 @@ export default function Game({
         let dealt;
         if (element === "physical") {
           const def = mob.defense || 0;
-          dealt = amount * (amount / (amount + def));
+          dealt = amount.dmg * (amount.dmg / (amount.dmg + def));
         } else {
           const res = mob.resistences?.[element] || 0;
-          dealt = amount * (1 - res / 100);
+          dealt = amount.dmg * (1 - res / 100);
         }
 
-        console.log("daniooo: ", mob, amount, element, dealt);
+        console.log("daniooo: ", mob, amount.dmg, element, dealt);
 
         bar.hp = Math.max(0, bar.hp - Math.max(0, dealt));
         this.updateMobHealthBar(mob);
-        if (bar.hp <= 0) this.killMob(mob);
+        let textOffset = MOB_HP_BAR_OFFSET_Y;
+        if (bar.hp <= 0) {
+          this.killMob(mob);
+          textOffset *= 1.3;
+        }
+
+        if (mob && amount) {
+          this.floatingText(
+            mob.x,
+            mob.y + textOffset,
+            `${dealt}`,
+            amount.isCrit ? "#f530ff" : "#fff",
+            amount.isCrit ? "14px" : "9px",
+          );
+        }
       }
 
       killMob(mob) {
@@ -1427,11 +1448,11 @@ export default function Game({
       }
 
       // Texto flotante que sube y se desvanece (feedback de oro al matar).
-      floatingText(x, y, label, color = "#fde047") {
+      floatingText(x, y, label, color = "#fde047", size = "9px") {
         const t = this.add
           .text(x, y, label, {
             fontFamily: '"Pixelify Sans", system-ui, sans-serif',
-            fontSize: "9px",
+            fontSize: size,
             color,
             stroke: "#000000",
             strokeThickness: 2,
@@ -1574,13 +1595,17 @@ export default function Game({
         );
 
         // 2. Rangos de distancia (en píxeles)
-        const minDistance = 50; // Muy cerca del personaje
-        const maxDistance = 400; // Lejos del personaje
+        const minDistance = 20; // Muy cerca del personaje
+        const maxDistance = 40; // Lejos del personaje
 
         // 3. Apertura TOTAL del abanico (en radianes)
         // Cerca = 120° de apertura total | Lejos = 10° de apertura total
-        const maxSpread = Phaser.Math.DegToRad(120);
-        const minSpread = Phaser.Math.DegToRad(10);
+        const maxSpread = Phaser.Math.DegToRad(
+          count < 3 ? 50 : count < 7 ? 80 : 150,
+        );
+        const minSpread = Phaser.Math.DegToRad(
+          count < 3 ? 5 : count < 7 ? 20 : 50,
+        );
 
         // 4. Interpolar el spread según la distancia
         const factor = Phaser.Math.Percent(distance, minDistance, maxDistance); // Devuelve 0.0 a 1.0
@@ -1594,7 +1619,7 @@ export default function Game({
         // 6. Disparar los proyectiles en abanico
         for (let i = 0; i < count; i++) {
           const angle = count === 1 ? cursorAngle : startAngle + i * step;
-          this.fireArrow(angle, this.stat("attackSpeed"), proj);
+          this.fireArrow(angle, proj, this.stat("attackSpeed"));
         }
       }
 
@@ -1831,9 +1856,18 @@ export default function Game({
 
       // Ataque: media luna que barre hacia el cursor y se desvanece.
       attack() {
+        // ATTACK SPEED
+        // const now = this.time.now;
+        // if (now < this.nextAttack) return;
+        // this.nextAttack = now + 280; // cooldown
         const now = this.time.now;
         if (now < this.nextAttack) return;
-        this.nextAttack = now + 280; // cooldown
+
+        const baseCooldown = 280;
+        // Divide entre la velocidad total (100% + bonificación)
+        const cooldown = baseCooldown / (1 + this.stat("attackSpeed") / 100);
+
+        this.nextAttack = now + cooldown;
 
         const p = this.input.activePointer;
         const cursor = this.cameras.main.getWorldPoint(p.x, p.y);

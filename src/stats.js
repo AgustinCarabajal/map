@@ -60,7 +60,7 @@ export const playerStats = {
   movementSpeed: 10,
 
   critChance: 5,
-  critDamage: 150,
+  critDamage: 50,
 
   areaDamage: 0,
   areaRadius: 0,
@@ -71,8 +71,8 @@ export const playerStats = {
   damageReduction: 0,
   damageReflection: 0,
 
-  projectileCount: 2,
-  pierceCount: 3,
+  projectileCount: 1,
+  pierceCount: 0,
 };
 
 // const weaponModifiers = {
