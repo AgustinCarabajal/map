@@ -12,6 +12,8 @@ export const MOBS = {
     scale: 1.4,
     speed: 90,
     damage: 10,
+    xp: 200,
+    type: "demonic",
     hp: 100,
     defense: 3,
     resistences: {

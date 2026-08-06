@@ -9,7 +9,7 @@ import {
 } from "./tileset.js";
 import { item_list } from "./items.js";
 import { rollItem } from "./modifiers.js";
-import { playerStats } from "./stats.js";
+import { playerInfo, playerStats } from "./stats.js";
 import { FEATURE_FLAGS } from "./flags.js";
 import { MOBS } from "./mobs.js";
 
@@ -172,6 +172,12 @@ const MOB_HP_BAR_OFFSET_Y = -36;
 export default function Game({
   weaponRef,
   characterRef,
+  hp,
+  mp,
+  xp,
+  setHp,
+  setMp,
+  setXp,
   equipRef,
   reducedVisionRef,
   mapThemeRef,
@@ -190,6 +196,14 @@ export default function Game({
     class DungeonScene extends Phaser.Scene {
       constructor() {
         super("dungeon");
+      }
+
+      restartGame() {
+        // Reinicia la escena actual desde cero
+        this.scene.restart();
+
+        // (Opcional) Si necesitas pasar datos al reiniciar:
+        // this.scene.restart({ score: 0 });
       }
 
       preload() {
@@ -247,6 +261,9 @@ export default function Game({
             frameHeight: m.frameH,
           });
         }
+
+        setHp(this.stat("hp"));
+        setMp(this.stat("mp"));
       }
 
       create() {
@@ -340,6 +357,25 @@ export default function Game({
         this.applyCharacter(initialChar);
 
         this.physics.add.collider(this.player, this.walls);
+        this.player.hp = hp;
+        this.player.mp = mp;
+        this.player.xp = xp;
+
+        // DAMAGE PLAYER
+        this.player.takeDamage = (damage, type) => {
+          let dealt = 0;
+          if (type === "physical") {
+            const def = this.stat("defense") || 0;
+            dealt = damage * (damage / (damage + def));
+          } else {
+            const res = this.stat(type + "Resist") || 0;
+            dealt = damage * (1 - res / 100);
+          }
+          const newHp = this.player.hp - dealt;
+
+          this.player.hp = Math.max(0, newHp);
+          setHp(this.player.hp);
+        };
 
         // Overlays de items equipados (uno por slot que tenga animación).
         // Se crean bajo demanda en updateEquip(); siempre por encima del player.
@@ -1059,12 +1095,15 @@ export default function Game({
         // ignoraría los valores definidos en mobs.js.
         mob.defense = cfg.defense || 0;
         mob.resistences = cfg.resistences || {};
+        mob.type = cfg.type;
+        mob.xp = cfg.xp;
         mob.setDepth(9);
         mob.setScale(cfg.scale);
         mob.setCollideWorldBounds(true);
         mob.body.setSize(cfg.body.w, cfg.body.h);
         mob.body.setOffset(cfg.body.ox, cfg.body.oy);
         mob.play(cfg.idle);
+        mob.shouldChase = false;
         this.createMobHealthBar(mob, cfg.hp);
         return mob;
       }
@@ -1338,21 +1377,52 @@ export default function Game({
 
       updateMobs() {
         if (!this.mobs) return;
+        const now = this.time.now;
+
         for (const mob of this.mobs.getChildren()) {
           if (!mob.active) continue;
           const cfg = MOBS[mob.mobType];
           if (!cfg) continue;
+
           const dx = this.player.x - mob.x;
           const dy = this.player.y - mob.y;
           const dist = Math.hypot(dx, dy);
-          const aggro = cfg.aggroRange ?? 200;
-          const chasing = dist <= aggro && dist > 4;
 
-          if (chasing) {
+          const aggro = cfg.aggroRange ?? 200;
+          const attackRange = cfg.attackRange ?? 25; // Distancia para estar "pegado"
+
+          // 1. Rango de Ataque (contacto)
+          if (dist <= attackRange) {
+            mob.setVelocity(0, 0); // Detiene al mob mientras ataca
+
+            mob.nextAttack = mob.nextAttack ?? 0;
+
+            if (now >= mob.nextAttack) {
+              const damage = cfg.damage ?? 10;
+              const type = cfg.type;
+              const cooldown = cfg.attackCooldown ?? 1000; // Recarga entre ataques (ms)
+
+              // Aplica el daño al jugador
+              if (typeof this.player.takeDamage === "function") {
+                this.player.takeDamage(damage, type);
+              }
+              // } else {
+              //   console.log("NO HITS?");
+              //   this.player.hp = Math.max(0, this.player.hp - damage);
+              //   console.log(this.player);
+              // }
+
+              mob.nextAttack = now + cooldown;
+            }
+
+            // 2. Rango de Persecución
+          } else if (dist <= aggro || mob.shouldChase) {
             mob.setVelocity((dx / dist) * cfg.speed, (dy / dist) * cfg.speed);
             if (mob.anims.currentAnim?.key !== cfg.walk)
               mob.play(cfg.walk, true);
             mob.setFlipX(dx < 0);
+
+            // 3. Fuera de rango (Idle)
           } else {
             mob.setVelocity(0, 0);
             if (mob.anims.currentAnim?.key !== cfg.idle)
@@ -1398,6 +1468,7 @@ export default function Game({
       // - resto (fire/cold/lightning/sacred/demonic): lo reduce la resistencia
       //   del mob a ese elemento (en %).
       damageMob(mob, amount, element = this.attackElement()) {
+        mob.shouldChase = true;
         const bar = mob.hpBar;
         if (!bar || !mob.active) return;
 
@@ -1441,6 +1512,8 @@ export default function Game({
             this.floatingText(mob.x, mob.y + MOB_HP_BAR_OFFSET_Y, `+${g} gold`);
           }
         }
+        this.player.xp += mob.xp;
+        setXp(this.player.xp);
         mob.hpBar?.bg?.destroy();
         mob.hpBar?.fill?.destroy();
         mob.hpBar = null;
@@ -2027,10 +2100,13 @@ export default function Game({
         const { W, A, S, D } = this.keys;
         let vx = 0;
         let vy = 0;
-        if (A.isDown) vx -= 1;
-        if (D.isDown) vx += 1;
-        if (W.isDown) vy -= 1;
-        if (S.isDown) vy += 1;
+
+        if (this.player.hp > 0) {
+          if (A.isDown) vx -= 1;
+          if (D.isDown) vx += 1;
+          if (W.isDown) vy -= 1;
+          if (S.isDown) vy += 1;
+        }
 
         if (vx !== 0 || vy !== 0) {
           const len = Math.hypot(vx, vy);
@@ -2179,6 +2255,7 @@ export default function Game({
       height: containerRef.current.clientHeight || window.innerHeight,
       backgroundColor: "#0c0f12",
       scene: [DungeonScene, UIScene],
+      restartGame: DungeonScene.restartGame,
       physics: {
         default: "arcade",
         arcade: { debug: false },

@@ -1,30 +1,40 @@
-import { playerInfo, playerStats } from './stats.js'
+import { LEVEL_XP } from "./level.js";
+import { playerStats } from "./stats.js";
 
 // camelCase -> "Camel Case" (con HP/MP/EXP en mayúscula).
 function prettyKey(k) {
   return k
-    .replace(/([A-Z])/g, ' $1')
+    .replace(/([A-Z])/g, " $1")
     .replace(/^./, (c) => c.toUpperCase())
-    .replace(/\b(Hp|Mp)\b/g, (m) => m.toUpperCase())
+    .replace(/\b(Hp|Mp)\b/g, (m) => m.toUpperCase());
 }
 
 // Categoría del daño que usa el player, según el stat de daño en uso (derivado
 // del tag del arma/skill de main hand): físico, sagrado, demoníaco o elemental
 // (fire/cold/lightning agrupados).
 const DAMAGE_CATEGORY = {
-  physicalDamage: 'Physical',
-  sacredDamage: 'Sacred',
-  demonicDamage: 'Demonic',
-  fireDamage: 'Elemental (Fire)',
-  coldDamage: 'Elemental (Cold)',
-  lightningDamage: 'Elemental (Lightning)',
-}
+  physicalDamage: "Physical",
+  sacredDamage: "Sacred",
+  demonicDamage: "Demonic",
+  fireDamage: "Elemental (Fire)",
+  coldDamage: "Elemental (Cold)",
+  lightningDamage: "Elemental (Lightning)",
+};
 
-export default function Character({ open, onClose, stats = playerStats, damageType = 'physicalDamage' }) {
-  if (!open) return null
+export default function Character({
+  open,
+  onClose,
+  stats = playerStats,
+  damageType = "physicalDamage",
+  characterRef,
+  xp,
+  level,
+  name,
+}) {
+  if (!open) return null;
 
-  const expPct = Math.min(100, Math.round((playerInfo.exp / playerInfo.expToNext) * 100))
-  const damageLabel = DAMAGE_CATEGORY[damageType] || 'Physical'
+  const expPct = Math.min(100, Math.round((xp / LEVEL_XP[level + 1]) * 100));
+  const damageLabel = DAMAGE_CATEGORY[damageType] || "Physical";
 
   return (
     <aside className="character">
@@ -36,9 +46,9 @@ export default function Character({ open, onClose, stats = playerStats, damageTy
       </header>
 
       <div className="char-id">
-        <div className="char-name">{playerInfo.name}</div>
-        <div className="char-class">{playerInfo.class}</div>
-        <div className="char-level">Level {playerInfo.level}</div>
+        <div className="char-name">{name}</div>
+        <div className="char-class">{characterRef.current}</div>
+        <div className="char-level">Level {level}</div>
       </div>
 
       <div className="char-exp">
@@ -46,7 +56,7 @@ export default function Character({ open, onClose, stats = playerStats, damageTy
           <div className="exp-fill" style={{ width: `${expPct}%` }} />
         </div>
         <div className="exp-text">
-          {playerInfo.exp} / {playerInfo.expToNext} EXP
+          {xp} / {LEVEL_XP[level + 1]} EXP
         </div>
       </div>
 
@@ -65,5 +75,5 @@ export default function Character({ open, onClose, stats = playerStats, damageTy
         ))}
       </ul>
     </aside>
-  )
+  );
 }

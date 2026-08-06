@@ -3,6 +3,7 @@ import Game from "./Game.jsx";
 import Inventory from "./Inventory.jsx";
 import Character from "./Character.jsx";
 import CraftingModal from "./CraftingModal.jsx";
+import DeathModal from "./DeathModal.jsx";
 import {
   buildInitialSlots,
   moveItem,
@@ -18,6 +19,8 @@ import {
   activeSkill,
 } from "./modifiers.js";
 import { playerStats } from "./stats.js";
+import { getLevelFromXP } from "./level.js";
+import LevelAnimation from "./LevelAnimation.jsx";
 
 export default function App() {
   const [invOpen, setInvOpen] = useState(false);
@@ -42,6 +45,7 @@ export default function App() {
   const weaponRef = useRef(null);
   const equipRef = useRef({});
   const characterRef = useRef("witch");
+
   // Modo de visión reducida (niebla). Lo lee Phaser en su loop de update.
   const reducedVisionRef = useRef(false);
   // Tipo de mapa que lee Phaser; al cambiarlo regenera el mapa con ese tema.
@@ -217,20 +221,53 @@ export default function App() {
     return () => window.removeEventListener("mousemove", onMove);
   }, [grab]);
 
+  const [hp, setHp] = useState(1);
+  const [mp, setMp] = useState(0);
+  const [xp, setXp] = useState(0);
+  const [level, setLevel] = useState(getLevelFromXP(xp));
+  const [name, setName] = useState("drach3");
+  const [levelAnimation, setLevelAnimation] = useState(false);
+
+  useEffect(() => {
+    setLevel((prev) => {
+      const newLevel = getLevelFromXP(xp);
+      if (newLevel > prev) setLevelAnimation(true);
+      return newLevel;
+    });
+  }, [xp]);
+
   return (
     <div className="app-shell">
+      {levelAnimation && (
+        <LevelAnimation
+          level={level}
+          levelAnimation={levelAnimation}
+          setLevelAnimation={setLevelAnimation}
+        />
+      )}
+      {hp <= 0 && <DeathModal onClose={closeStore} />}
       {/* Character panel (left). Always mounted, hides itself. */}
       <Character
         open={charOpen}
         onClose={closeChar}
         stats={stats}
         damageType={mainDamageStat(slots)}
+        characterRef={characterRef}
+        xp={xp}
+        level={level}
+        name={name}
       />
       <main className="game-panel">
         <Game
           weaponRef={weaponRef}
           characterRef={characterRef}
           equipRef={equipRef}
+          hp={hp}
+          mp={mp}
+          xp={xp}
+          setHp={setHp}
+          setMp={setMp}
+          setXp={setXp}
           reducedVisionRef={reducedVisionRef}
           mapThemeRef={mapThemeRef}
           combatRef={combatRef}
@@ -256,6 +293,8 @@ export default function App() {
       {/* Menú de pruebas (abajo): agrupa la selección de personaje y los
           toggles de opciones de test. Extensible: agregá más secciones/toggles. */}
       <div className="test-menu">
+        <div>HP {hp}</div>
+        <div>XP {xp}</div>
         {menuOpen && (
           <div className="test-menu-panel">
             <div className="menu-section">
@@ -315,8 +354,9 @@ export default function App() {
           onClick={() => setMenuOpen((v) => !v)}
           aria-expanded={menuOpen}
         >
-          ⚙ Menú
+          ⚙ Menu
         </button>
+        <div>MP {mp}</div>
       </div>
 
       {/* Inventario (derecha) y mesa de crafteo (flotante) comparten slots,
