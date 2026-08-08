@@ -21,8 +21,11 @@ import {
 import { playerStats } from "./stats.js";
 import { getLevelFromXP } from "./level.js";
 import LevelAnimation from "./LevelAnimation.jsx";
+import { Experience, ResourceBar } from "./UI.jsx";
 
 export default function App() {
+  const gameRef = useRef(null);
+
   const [invOpen, setInvOpen] = useState(false);
   const [charOpen, setCharOpen] = useState(false);
   const [storeOpen, setStoreOpen] = useState(false);
@@ -222,7 +225,9 @@ export default function App() {
   }, [grab]);
 
   const [hp, setHp] = useState(1);
+  const [maxHp, setMaxHp] = useState(1);
   const [mp, setMp] = useState(0);
+  const [maxMp, setMaxMp] = useState(0);
   const [xp, setXp] = useState(0);
   const [level, setLevel] = useState(getLevelFromXP(xp));
   const [name, setName] = useState("drach3");
@@ -245,7 +250,7 @@ export default function App() {
           setLevelAnimation={setLevelAnimation}
         />
       )}
-      {hp <= 0 && <DeathModal onClose={closeStore} />}
+      {hp <= 0 && <DeathModal onClose={closeStore} gameRef={gameRef} />}
       {/* Character panel (left). Always mounted, hides itself. */}
       <Character
         open={charOpen}
@@ -268,6 +273,8 @@ export default function App() {
           setHp={setHp}
           setMp={setMp}
           setXp={setXp}
+          setMaxHp={setMaxHp}
+          setMaxMp={setMaxMp}
           reducedVisionRef={reducedVisionRef}
           mapThemeRef={mapThemeRef}
           combatRef={combatRef}
@@ -275,6 +282,7 @@ export default function App() {
           onOpenStore={openStore}
           onPickupItem={pickupItem}
           onAddGold={addGold}
+          gameRef={gameRef}
         />
       </main>
 
@@ -293,8 +301,13 @@ export default function App() {
       {/* Menú de pruebas (abajo): agrupa la selección de personaje y los
           toggles de opciones de test. Extensible: agregá más secciones/toggles. */}
       <div className="test-menu">
-        <div>HP {hp}</div>
-        <div>XP {xp}</div>
+        <button
+          className="test-menu-toggle"
+          onClick={() => setMenuOpen((v) => !v)}
+          aria-expanded={menuOpen}
+        >
+          ⚙ Menu
+        </button>
         {menuOpen && (
           <div className="test-menu-panel">
             <div className="menu-section">
@@ -348,15 +361,12 @@ export default function App() {
             </div>
           </div>
         )}
-
-        <button
-          className="test-menu-toggle"
-          onClick={() => setMenuOpen((v) => !v)}
-          aria-expanded={menuOpen}
-        >
-          ⚙ Menu
-        </button>
-        <div>MP {mp}</div>
+      </div>
+      {/* RESOURCES */}
+      <div className="resources-bottom">
+        <ResourceBar value={hp} maxValue={maxHp} type="hp" />
+        <Experience xp={xp} level={level} />
+        <ResourceBar value={mp} maxValue={maxMp} type="mp" />
       </div>
 
       {/* Inventario (derecha) y mesa de crafteo (flotante) comparten slots,

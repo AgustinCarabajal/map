@@ -1,4 +1,10 @@
 export default function DeathModal({ onClose, gameRef }) {
+  const handleStartGame = () => {
+    const scene = gameRef.current?.scene.getScene("MenuScene");
+
+    scene?.scene.start("DungeonScene");
+  };
+
   return (
     <div className="dead-overlay">
       <div className="dead-modal">
@@ -11,12 +17,7 @@ export default function DeathModal({ onClose, gameRef }) {
 
         <h2 className="crafting-area">You are dead</h2>
 
-        <button
-          className="craft-btn"
-          onClick={() => {
-            window.location.reload();
-          }}
-        >
+        <button className="craft-btn" onClick={handleStartGame}>
           Resurrect at checkpoint
         </button>
       </div>

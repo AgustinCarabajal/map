@@ -12,6 +12,8 @@ import { rollItem } from "./modifiers.js";
 import { playerInfo, playerStats } from "./stats.js";
 import { FEATURE_FLAGS } from "./flags.js";
 import { MOBS } from "./mobs.js";
+import { BootScene } from "./Boot.jsx";
+import { MenuScene } from "./Menu.jsx";
 
 // Mapa id de item -> type (sword/shield/bow/...), para reglas según el arma.
 const ITEM_TYPE = Object.fromEntries(item_list.map((it) => [it.id, it.type]));
@@ -186,24 +188,18 @@ export default function Game({
   onOpenStore,
   onPickupItem,
   onAddGold,
+  gameRef,
+  setMaxHp,
+  setMaxMp,
 }) {
   const containerRef = useRef(null);
-  const gameRef = useRef(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
 
     class DungeonScene extends Phaser.Scene {
       constructor() {
-        super("dungeon");
-      }
-
-      restartGame() {
-        // Reinicia la escena actual desde cero
-        this.scene.restart();
-
-        // (Opcional) Si necesitas pasar datos al reiniciar:
-        // this.scene.restart({ score: 0 });
+        super("DungeonScene");
       }
 
       preload() {
@@ -262,8 +258,21 @@ export default function Game({
           });
         }
 
+        // Player (personaje inicial según selección).
+        this.player = this.physics.add.sprite(
+          0,
+          0,
+          CHARACTERS[(characterRef && characterRef.current) || "soldier"].idle,
+          0,
+        );
+
+        setMaxHp(this.stat("hp"));
+        setMaxMp(this.stat("mp"));
+        this.player.hp = this.stat("hp");
+        this.player.mp = this.stat("mp");
         setHp(this.stat("hp"));
         setMp(this.stat("mp"));
+        this.player.xp = xp;
       }
 
       create() {
@@ -341,25 +350,16 @@ export default function Game({
         this.shadowGfx = this.add.graphics().setDepth(1);
         this.walls = this.physics.add.staticGroup();
 
-        // Player (personaje inicial según selección).
-        const initialChar = (characterRef && characterRef.current) || "soldier";
-        this.player = this.physics.add.sprite(
-          0,
-          0,
-          CHARACTERS[initialChar].idle,
-          0,
-        );
         this.player.setDepth(10);
         this.player.setCollideWorldBounds(true);
         // El player no es empujable: los mobs chocan contra él pero no lo
         // desplazan de su posición.
         this.player.body.pushable = false;
-        this.applyCharacter(initialChar);
+        this.applyCharacter(
+          (characterRef && characterRef.current) || "soldier",
+        );
 
         this.physics.add.collider(this.player, this.walls);
-        this.player.hp = hp;
-        this.player.mp = mp;
-        this.player.xp = xp;
 
         // DAMAGE PLAYER
         this.player.takeDamage = (damage, type) => {
@@ -1389,7 +1389,7 @@ export default function Game({
           const dist = Math.hypot(dx, dy);
 
           const aggro = cfg.aggroRange ?? 200;
-          const attackRange = cfg.attackRange ?? 25; // Distancia para estar "pegado"
+          const attackRange = cfg.attackRange ?? 40; // Distancia para estar "pegado"
 
           // 1. Rango de Ataque (contacto)
           if (dist <= attackRange) {
@@ -1475,13 +1475,11 @@ export default function Game({
         let dealt;
         if (element === "physical") {
           const def = mob.defense || 0;
-          dealt = amount.dmg * (amount.dmg / (amount.dmg + def));
+          dealt = Math.floor(amount.dmg * (amount.dmg / (amount.dmg + def)));
         } else {
           const res = mob.resistences?.[element] || 0;
-          dealt = amount.dmg * (1 - res / 100);
+          dealt = Math.floor(amount.dmg * (1 - res / 100));
         }
-
-        console.log("daniooo: ", mob, amount.dmg, element, dealt);
 
         bar.hp = Math.max(0, bar.hp - Math.max(0, dealt));
         this.updateMobHealthBar(mob);
@@ -2254,8 +2252,7 @@ export default function Game({
       width: containerRef.current.clientWidth || window.innerWidth,
       height: containerRef.current.clientHeight || window.innerHeight,
       backgroundColor: "#0c0f12",
-      scene: [DungeonScene, UIScene],
-      restartGame: DungeonScene.restartGame,
+      scene: [BootScene, MenuScene, DungeonScene, UIScene],
       physics: {
         default: "arcade",
         arcade: { debug: false },
