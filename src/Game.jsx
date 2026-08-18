@@ -7,15 +7,17 @@ import {
   WALL_B_FRAMES,
   TEXTURE_FRAMES,
 } from "./tileset.js";
-import { item_list } from "./items.js";
-import { rollItem } from "./modifiers.js";
+import { item_list, rollItem, isRanged, isCaster, isMelee } from "./items.js";
 import { playerInfo, playerStats } from "./stats.js";
 import { FEATURE_FLAGS } from "./flags.js";
 import { MOBS } from "./mobs.js";
 import { BootScene } from "./Boot.jsx";
 import { MenuScene } from "./Menu.jsx";
 
-// Mapa id de item -> type (sword/shield/bow/...), para reglas según el arma.
+// Mapa id de item -> type (sword/axe/bow/crossbow/staff/...), para reglas según
+// el arma. Cómo ataca cada type lo definen isMelee/isRanged/isCaster (items.js):
+// melee -> tajo · ranged (arco/ballesta) -> flechas · caster (varita/bastón/
+// cetro) -> bolas.
 const ITEM_TYPE = Object.fromEntries(item_list.map((it) => [it.id, it.type]));
 
 // Mapa grande para llenar pantallas completas; la cámara sigue al player.
@@ -646,7 +648,7 @@ export default function Game({
 
               const proj = combatRef?.current?.projectile;
               const atkSpeed = this.stat("attackSpeed");
-              if (proj && (weaponType === "wand" || !weaponType)) {
+              if (proj && (isCaster(weaponType) || !weaponType)) {
                 this.fireBall(
                   randomAngle,
                   proj,
@@ -655,7 +657,7 @@ export default function Game({
                   spawnY,
                   true,
                 );
-              } else if (weaponType === "wand") {
+              } else if (isCaster(weaponType)) {
                 this.basicBall(
                   randomAngle,
                   proj,
@@ -1954,24 +1956,27 @@ export default function Game({
         // Con una skill de proyectil equipada, el ataque dispara sus bolas
         // (fuego/sombra/...) en vez del golpe cuerpo a cuerpo o la flecha.
         const proj = combatRef?.current?.projectile;
-        if (proj && (weaponType === "wand" || !weaponType)) {
+        if (proj && (isCaster(weaponType) || !weaponType)) {
           this.shootBalls(angle, proj, this.stat("attackSpeed"));
           return;
         }
 
-        if (weaponType === "wand") {
+        // Varita / bastón / cetro sin skill: bola básica.
+        if (isCaster(weaponType)) {
           this.shootNormalBall(angle, proj, this.stat("attackSpeed"));
           return;
         }
 
-        // Con un arco equipado en la main hand, dispara una flecha.
-        if (weaponType === "bow") {
+        // Con un arco o una ballesta en la main hand, dispara una flecha.
+        if (isRanged(weaponType)) {
           // this.shootArrow(angle)
           const skill = combatRef?.current?.skill;
           if (skill) {
             switch (skill.id) {
               case "skill_fireArrow":
               case "skill_lightningArrow":
+              case "skill_lightningArrow2":
+              case "skill_lightningArrow3":
                 this.shootArrow(angle, proj);
                 break;
               default:
@@ -1984,8 +1989,9 @@ export default function Game({
 
         const finalScale = ATTACK_SCALE;
 
-        // Con espada, el tajo se separa del personaje en la dirección del ataque.
-        const off = weaponType === "sword" ? SWORD_ATTACK_OFFSET : 0;
+        // Con arma cuerpo a cuerpo (espada/hacha/maza), el tajo se separa del
+        // personaje en la dirección del ataque.
+        const off = isMelee(weaponType) ? SWORD_ATTACK_OFFSET : 0;
         const offX = Math.cos(angle) * off;
         const offY = Math.sin(angle) * off;
 

@@ -4,6 +4,7 @@ import Inventory from "./Inventory.jsx";
 import Character from "./Character.jsx";
 import CraftingModal from "./CraftingModal.jsx";
 import DeathModal from "./DeathModal.jsx";
+import ItemSpawner from "./ItemSpawner.jsx";
 import {
   buildInitialSlots,
   moveItem,
@@ -12,12 +13,8 @@ import {
   EQUIP_SLOTS,
 } from "./inventoryData.js";
 import { matchRecipe } from "./recipes.js";
-import {
-  makeItem,
-  computeStats,
-  mainDamageStat,
-  activeSkill,
-} from "./modifiers.js";
+import { makeItem } from "./items.js";
+import { computeStats, mainDamageStat, activeSkill } from "./modifiers.js";
 import { playerStats } from "./stats.js";
 import { getLevelFromXP } from "./level.js";
 import LevelAnimation from "./LevelAnimation.jsx";
@@ -30,6 +27,14 @@ export default function App() {
   const [charOpen, setCharOpen] = useState(false);
   const [storeOpen, setStoreOpen] = useState(false);
   const [character, setCharacter] = useState("soldier");
+  const [hp, setHp] = useState(1);
+  const [maxHp, setMaxHp] = useState(1);
+  const [mp, setMp] = useState(0);
+  const [maxMp, setMaxMp] = useState(0);
+  const [xp, setXp] = useState(0);
+  const [level, setLevel] = useState(getLevelFromXP(xp));
+  const [name, setName] = useState("drach3");
+  const [levelAnimation, setLevelAnimation] = useState(false);
   // Menú de pruebas (abajo) + toggles de opciones de test.
   const [menuOpen, setMenuOpen] = useState(false);
   const [reducedVision, setReducedVision] = useState(false);
@@ -117,9 +122,12 @@ export default function App() {
     [],
   );
 
-  const handleMove = useCallback((target, source) => {
-    setSlots((prev) => moveItem(prev, target, source));
-  }, []);
+  const handleMove = useCallback(
+    (target, source) => {
+      setSlots((prev) => moveItem(prev, target, source, level));
+    },
+    [level],
+  );
   const handleAutoMove = useCallback((from) => {
     setSlots((prev) => autoMove(prev, from));
   }, []);
@@ -223,15 +231,6 @@ export default function App() {
     window.addEventListener("mousemove", onMove);
     return () => window.removeEventListener("mousemove", onMove);
   }, [grab]);
-
-  const [hp, setHp] = useState(1);
-  const [maxHp, setMaxHp] = useState(1);
-  const [mp, setMp] = useState(0);
-  const [maxMp, setMaxMp] = useState(0);
-  const [xp, setXp] = useState(0);
-  const [level, setLevel] = useState(getLevelFromXP(xp));
-  const [name, setName] = useState("drach3");
-  const [levelAnimation, setLevelAnimation] = useState(false);
 
   useEffect(() => {
     setLevel((prev) => {
@@ -359,6 +358,10 @@ export default function App() {
                 </button>
               </label>
             </div>
+
+            {/* Catálogo de items: spawnea cualquier item en la mochila para
+                probarlo (mismas instancias que dropea un cofre). */}
+            <ItemSpawner onSpawn={pickupItem} />
           </div>
         )}
       </div>

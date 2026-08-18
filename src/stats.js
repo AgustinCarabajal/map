@@ -14,7 +14,7 @@ export const playerInfo = {
     "skill_fireball",
     "skill_shadowball",
     "wand_00",
-    "skill_lightningArrow",
+    "skill_lightningArrow3",
   ],
 };
 

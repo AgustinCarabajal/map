@@ -1,5 +1,3 @@
-import { item_list } from "./items.js";
-
 // ---------------------------------------------------------------------------
 // Catálogo de modificadores que un item puede "rollear" al dropear.
 //
@@ -92,6 +90,18 @@ export const MODIFIERS = {
     label: "+# to defense",
     tiers: { low: [8, 30], mid: [40, 120], high: [150, 350] },
   },
+  inc_def: {
+    stat: "defense",
+    mode: "increased",
+    label: "#% increased defense",
+    tiers: { low: [5, 10], mid: [15, 40], high: [50, 100] },
+  },
+  inc_evasion: {
+    stat: "chanceToEvade",
+    mode: "increased",
+    label: "#% increased block chance",
+    tiers: { low: [3, 8], mid: [10, 20], high: [25, 45] },
+  },
   inc_block: {
     stat: "blockChance",
     mode: "increased",
@@ -101,11 +111,41 @@ export const MODIFIERS = {
   inc_dmgred: {
     stat: "damageReduction",
     mode: "increased",
-    label: "#% increased damage reduction",
+    label: "#% damage decreased",
+    tiers: { low: [2, 6], mid: [8, 14], high: [18, 30] },
+  },
+  inc_dmgref: {
+    stat: "damageReflection",
+    mode: "increased",
+    label: "#% damage reflected",
     tiers: { low: [2, 6], mid: [8, 14], high: [18, 30] },
   },
 
   // --- Generales (pueden ir en cualquier item) ---
+  inc_hp: {
+    stat: "hp",
+    mode: "increased",
+    label: "#% increased life",
+    tiers: { low: [5, 10], mid: [15, 25], high: [30, 50] },
+  },
+  inc_mp: {
+    stat: "mp",
+    mode: "increased",
+    label: "#% increased mana",
+    tiers: { low: [5, 10], mid: [15, 25], high: [30, 50] },
+  },
+  inc_sacredShield: {
+    stat: "ss",
+    mode: "increased",
+    label: "#% increased sacred shield",
+    tiers: { low: [5, 10], mid: [15, 25], high: [30, 50] },
+  },
+  inc_demonicShield: {
+    stat: "ds",
+    mode: "increased",
+    label: "#% increased demonic shield",
+    tiers: { low: [5, 10], mid: [15, 25], high: [30, 50] },
+  },
   flat_hp: {
     stat: "hp",
     mode: "flat",
@@ -164,11 +204,16 @@ export const BOW_MODS = [
   "flat_pierce",
 ];
 export const EQUIPMENT_MODS = [
+  "flat_def",
   "flat_hp",
   "flat_mp",
   "flat_sacredShield",
   "flat_demonicShield",
   "inc_ms",
+  "inc_hp",
+  "inc_mp",
+  "inc_sacredShield",
+  "inc_demonicShield",
 ];
 export const SHIELD_MODS = [
   "flat_def",
@@ -178,8 +223,42 @@ export const SHIELD_MODS = [
   "flat_mp",
   "flat_sacredShield",
   "flat_demonicShield",
-  "inc_ms",
+  "inc_hp",
+  "inc_mp",
+  "inc_sacredShield",
+  "inc_demonicShield",
 ];
+// Hachas: mismo pool ofensivo que las espadas (armas cuerpo a cuerpo).
+export const AXE_MODS = [...SWORD_MODS];
+// Mazas: ofensivo + algo de defensa (son armas contundentes/pesadas).
+export const MACE_MODS = [...SWORD_MODS];
+// Ballestas: mismo pool que los arcos (proyectiles).
+export const CROSSBOW_MODS = [...BOW_MODS];
+// Carcaj (off hand de arquero): todo lo que mejora los proyectiles.
+export const QUIVER_MODS = [
+  "flat_phys",
+  "flat_fire",
+  "flat_cold",
+  "flat_light",
+  "flat_proj",
+  "flat_pierce",
+  "inc_atkspd",
+  "inc_crit",
+  "inc_critdmg",
+  "flat_hp",
+  "flat_mp",
+  // flat_res
+];
+// Bastones (2 manos, casteo): ofensivo + maná + proyectiles.
+export const STAFF_MODS = [...BOW_MODS, "flat_mp"];
+// Cetros (1 mano, casteo): ofensivo + maná + crítico.
+export const SCEPTER_MODS = [...BOW_MODS, "flat_mp"];
+// Varitas: igual que los cetros pero más ligeros (ya usaban BOW_MODS).
+export const WAND_MODS = [...BOW_MODS, "flat_mp"];
+// Armadura de torso: defensivo + generales.
+export const ARMOR_MODS = ["flat_def", "inc_dmgred", ...EQUIPMENT_MODS];
+// Tomos pasivos (slot de habilidad): sólo mejoras generales.
+export const TOME_MODS = [...EQUIPMENT_MODS];
 
 // Cada `tag` de daño mapea a la stat de daño de playerStats correspondiente.
 // Sirve para dos cosas: 1) sumar el base.damage de un item a esa stat al
@@ -193,6 +272,23 @@ export const TAG_TO_DAMAGE = {
   sacred: "sacredDamage",
   demonic: "demonicDamage",
 };
+
+// Atributos de `base` que suman DIRECTO a la stat homónima de playerStats al
+// equipar el item (`damage` va aparte: se enruta por el `tag` del item, y
+// `requiredLevel` es sólo informativo para el tooltip).
+const BASE_STAT_KEYS = [
+  "defense",
+  "blockChance",
+  "attackSpeed",
+  "critChance",
+  "critDamage",
+  "projectileCount",
+  "pierceCount",
+  "movementSpeed",
+  "damageReduction",
+  "hp",
+  "mp",
+];
 
 // Pesos de rareza por tier (más probable low, raro high).
 const TIER_WEIGHTS = [
@@ -215,7 +311,7 @@ const pickTier = (tiers) => {
 };
 
 // Barajado no destructivo (Fisher-Yates sobre una copia).
-const shuffle = (arr) => {
+export const shuffle = (arr) => {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -242,42 +338,8 @@ export function rollMod(key) {
   };
 }
 
-// Genera una INSTANCIA de item a partir de su template (item_list):
-// copia sus atributos base y le agrega de 1 a `maxMods` modificadores
-// tomados al azar (sin repetir) de su pool propio (`mods`).
-export function rollItem(itemId, { minMods = 0, maxMods = 5 } = {}) {
-  const tpl = item_list.find((it) => it.id === itemId);
-  if (!tpl) return null;
-  const pool = tpl.mods || [];
-  const count = Math.min(pool.length, randInt(minMods, maxMods));
-  const mods = shuffle(pool).slice(0, count).map(rollMod).filter(Boolean);
-  return {
-    id: tpl.id,
-    type: tpl.type,
-    name: tpl.name,
-    tag: tpl.tag,
-    base: tpl.base ? { ...tpl.base } : undefined,
-    projectile: tpl.projectile,
-    mods, // instancia única: estos valores son fijos para este item dropeado
-  };
-}
-
-// Instancia "base" de un item (sin mods rolleados). Para items iniciales y el
-// resultado de crafteo: mismos atributos, 0 modificadores.
-export function makeItem(itemId) {
-  const tpl = item_list.find((it) => it.id === itemId);
-  if (!tpl) return null;
-  return {
-    id: tpl.id,
-    type: tpl.type,
-    name: tpl.name,
-    tag: tpl.tag,
-    base: tpl.base ? { ...tpl.base } : undefined,
-    projectile: tpl.projectile,
-    version: tpl.version,
-    mods: [],
-  };
-}
+// Cuántos mods rollear para un item: entero al azar en [min, max].
+export const modCount = (min, max) => randInt(min, max);
 
 // Aplica los mods de los items equipados sobre una copia de las stats base.
 // 'flat' suma; 'increased' se acumula como % y se multiplica al final.
@@ -294,9 +356,12 @@ export function computeStats(baseStats, equipped = []) {
       const dmgStat = TAG_TO_DAMAGE[item.tag];
       if (b.damage && dmgStat)
         stats[dmgStat] = (stats[dmgStat] || 0) + b.damage;
-      if (b.defense) stats.defense = (stats.defense || 0) + b.defense;
-      if (b.blockChance)
-        stats.blockChance = (stats.blockChance || 0) + b.blockChance;
+      // El resto de los atributos base suman a la stat del mismo nombre
+      // (defensa/bloqueo, pero también velocidad de ataque, proyectiles, etc.
+      // que es lo que diferencia a un hacha lenta de una espada rápida).
+      for (const key of BASE_STAT_KEYS) {
+        if (b[key]) stats[key] = (stats[key] || 0) + b[key];
+      }
     }
     // 2) Modificadores rolleados: 'flat' suma, 'increased' se acumula como %.
     // for (const m of item.mods || []) {
@@ -306,8 +371,21 @@ export function computeStats(baseStats, equipped = []) {
     //     pct[m.stat] = (pct[m.stat] || 0) + m.value;
     //   }
     // }
+    if (item?.baseMods?.length)
+      for (const m of item.baseMods) {
+        stats[m.stat] = (stats[m.stat] || 0) + +m.value;
+        // switch (m.stat) {
+        //   case 'attackSpeed':
+        //     stats[m.stat] = (stats[m.stat] || 0) + m.value;
+        //     break;
+        //   default:
+        //     const total =
+        //     stats[m.stat] = (stats[m.stat] || 0) + m.value;
+        //     break;
+        // }
+      }
     for (const m of item.mods || []) {
-      stats[m.stat] = stats[m.stat] + m.value;
+      stats[m.stat] = (stats[m.stat] || 0) + m.value;
       // switch (m.stat) {
       //   case 'attackSpeed':
       //     stats[m.stat] = (stats[m.stat] || 0) + m.value;
